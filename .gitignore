@@ -1,0 +1,11 @@
+node_modules
+.DS_Store
+*.log
+.env
+.next
+.medusa
+dist
+build
+.expo
+web-build
+*.tsbuildinfo
