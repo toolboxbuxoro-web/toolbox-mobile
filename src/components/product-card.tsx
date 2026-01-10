@@ -8,6 +8,9 @@ import { useFavoritesStore } from '@/store/favorites-store';
 import { HighlightedText } from './ui/highlighted-text';
 import { ProductRating } from './ui/product-rating';
 import { InstallmentPrice } from './ui/installment-price';
+import { formatMoney } from '../lib/formatters/money';
+import { useAuthStore } from '@/store/auth-store';
+import { AuthSheet } from './auth/AuthSheet';
 
 interface ProductCardProps {
   product: Product;
@@ -21,13 +24,12 @@ interface ProductCardProps {
 export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, onAddToCart, searchQuery }: ProductCardProps) {
   const { addItem } = useCart();
   const [adding, setAdding] = useState(false);
+  const [isAuthVisible, setIsAuthVisible] = useState(false);
+  const { status } = useAuthStore();
   const { isFavorite: isFavStore, toggleFavorite } = useFavoritesStore();
 
   const isFav = isFavorite !== undefined ? isFavorite : (product ? isFavStore(product.id) : false);
 
-  const formatPrice = (price: number): string => {
-    return price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-  };
 
   // Determine display data
   const title = product.title;
@@ -81,6 +83,13 @@ export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, on
   const hasInstallment = (product.metadata?.has_installment as boolean) || false;
   
   const handleAddToCart = async () => {
+    if (adding) return;
+
+    if (status !== 'authorized') {
+      setIsAuthVisible(true);
+      return;
+    }
+
     if (onAddToCart) {
       onAddToCart();
       return;
@@ -99,6 +108,7 @@ export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, on
       await addItem(variantId, 1);
       Alert.alert("Успешно", "Товар добавлен в корзину");
     } catch (err) {
+      console.error('[ProductCard] Add to cart error:', err);
       Alert.alert("Ошибка", "Не удалось добавить товар");
     } finally {
       setAdding(false);
@@ -114,105 +124,111 @@ export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, on
   };
 
   return (
-    <Pressable 
-      onPress={onPress}
-      className={`bg-white rounded-xl overflow-hidden mb-3 shadow-sm border border-gray-100 flex-1 mx-1 ${!isInStock ? 'opacity-80' : ''}`}
-    >
-      {/* Image Container */}
-      <View className={`relative ${!isInStock ? 'opacity-70' : ''}`}>
-        <Image
-          source={image ? { uri: image } : require('../../assets/images/placeholder.png')} 
-          style={{ width: '100%', aspectRatio: 3/4 }}
-          contentFit="contain"
-          cachePolicy="memory-disk"
-          transition={200}
-          className="bg-white"
-        />
-        
-        {/* Favorite Button */}
-        <Pressable 
-          onPress={handleToggleFavorite}
-          className={`absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full shadow-md ${
-            isFav ? 'bg-red-50' : 'bg-white/80'
-          }`}
-        >
-          <Ionicons 
-            name={isFav ? "heart" : "heart-outline"} 
-            size={20} 
-            color={isFav ? "#DC2626" : "#6B7280"} 
+    <>
+      <Pressable 
+        onPress={onPress}
+        className={`bg-white rounded-xl overflow-hidden mb-3 shadow-sm border border-gray-100 flex-1 mx-1 ${!isInStock ? 'opacity-80' : ''}`}
+      >
+        {/* Image Container */}
+        <View className={`relative ${!isInStock ? 'opacity-70' : ''}`}>
+          <Image
+            source={image ? { uri: image } : require('../../assets/images/placeholder.png')} 
+            style={{ width: '100%', aspectRatio: 3/4 }}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            transition={200}
+            className="bg-white"
           />
-        </Pressable>
+          
+          {/* Favorite Button */}
+          <Pressable 
+            onPress={handleToggleFavorite}
+            className={`absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full shadow-md ${
+              isFav ? 'bg-red-50' : 'bg-white/80'
+            }`}
+          >
+            <Ionicons 
+              name={isFav ? "heart" : "heart-outline"} 
+              size={20} 
+              color={isFav ? "#DC2626" : "#6B7280"} 
+            />
+          </Pressable>
 
-        {/* Out of Stock Badge */}
-        {!isInStock && (
-          <View className="absolute top-2 left-2 bg-gray-700 text-white px-2 py-1 rounded-full shadow-lg">
-            <Text className="text-white text-[10px] font-bold">Нет в наличии</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Product Info */}
-      <View className="p-3 flex-1">
-        {/* Price */}
-        <View className="mb-2 h-7 flex-row items-center">
-          <Text className="text-red-600 font-black text-base">
-            {formatPrice(priceAmount)}
-          </Text>
-          <Text className="text-red-600 text-xs ml-0.5"> сум</Text>
+          {/* Out of Stock Badge */}
+          {!isInStock && (
+            <View className="absolute top-2 left-2 bg-gray-700 text-white px-2 py-1 rounded-full shadow-lg">
+              <Text className="text-white text-[10px] font-bold">Нет в наличии</Text>
+            </View>
+          )}
         </View>
 
-        {/* Title - Fixed 3-line height */}
-        <HighlightedText 
-          text={title}
-          highlight={searchQuery || ''}
-          numberOfLines={3} 
-          className="text-gray-800 font-medium text-xs leading-tight mb-2"
-          style={{ minHeight: 48 }} // ~3 lines at text-xs
-        />
-
-        {/* Rating */}
-        <View className="h-5 mb-1">
-          <ProductRating rating={rating} reviewCount={reviewCount} size="small" />
-        </View>
-
-        {/* Stock Quantity - Only show if inventory is managed and in stock */}
-        <View className="h-4 mb-1">
-          {inventoryInfo && !inventoryInfo.canBackorder && inventoryInfo.quantity > 0 && inventoryInfo.quantity <= 10 && (
-            <Text className="text-gray-500 text-[10px]">
-              Осталось: {inventoryInfo.quantity} шт.
+        {/* Product Info */}
+        <View className="p-3 flex-1">
+          {/* Price */}
+          <View className="mb-2 h-7 flex-row items-center">
+            <Text className="text-red-600 font-black text-base">
+              {formatMoney(priceAmount)}
             </Text>
-          )}
-        </View>
+          </View>
 
-        {/* Installment */}
-        <View className="h-4 mb-2">
-          {hasInstallment && priceAmount > 0 && (
-            <InstallmentPrice amount={priceAmount} />
-          )}
-        </View>
+          {/* Title - Fixed 3-line height */}
+          <HighlightedText 
+            text={title}
+            highlight={searchQuery || ''}
+            numberOfLines={3} 
+            className="text-gray-800 font-medium text-xs leading-tight mb-2"
+            style={{ minHeight: 48 }} // ~3 lines at text-xs
+          />
 
-        {/* Add to Cart Button */}
-        <Pressable 
-          onPress={handleAddToCart}
-          disabled={adding || !isInStock}
-          className={`w-full h-10 flex-row items-center justify-center rounded-lg shadow-sm ${
-            isInStock 
-              ? 'bg-red-600 active:bg-red-700' 
-              : 'bg-gray-100'
-          }`}
-        >
-          {adding ? (
-             <ActivityIndicator size="small" color="white" /> 
-          ) : (
-             <>
-                <Ionicons name="cart-outline" size={16} color={isInStock ? "white" : "#9CA3AF"} />
-                <Text className={`font-bold text-xs ml-1 uppercase ${isInStock ? 'text-white' : 'text-gray-400'}`}>
-                  {product.variants?.length === 1 ? 'В корзину' : 'Выбрать'}
-                </Text>
-             </>
-          )}
-        </Pressable>
-      </View>
-    </Pressable>
+          {/* Rating */}
+          <View className="h-5 mb-1">
+            <ProductRating rating={rating} reviewCount={reviewCount} size="small" />
+          </View>
+
+          {/* Stock Quantity - Only show if inventory is managed and in stock */}
+          <View className="h-4 mb-1">
+            {inventoryInfo && !inventoryInfo.canBackorder && inventoryInfo.quantity > 0 && inventoryInfo.quantity <= 10 && (
+              <Text className="text-gray-500 text-[10px]">
+                Осталось: {inventoryInfo.quantity} шт.
+              </Text>
+            )}
+          </View>
+
+          {/* Installment */}
+          <View className="h-4 mb-2">
+            {hasInstallment && priceAmount > 0 && (
+              <InstallmentPrice amount={priceAmount} />
+            )}
+          </View>
+
+          {/* Add to Cart Button */}
+          <Pressable 
+            onPress={handleAddToCart}
+            disabled={adding || !isInStock}
+            className={`w-full h-10 flex-row items-center justify-center rounded-lg shadow-sm ${
+              isInStock 
+                ? 'bg-red-600 active:bg-red-700' 
+                : 'bg-gray-100'
+            }`}
+          >
+            {adding ? (
+               <ActivityIndicator size="small" color="white" /> 
+            ) : (
+               <>
+                  <Ionicons name="cart-outline" size={16} color={isInStock ? "white" : "#9CA3AF"} />
+                  <Text className={`font-bold text-xs ml-1 uppercase ${isInStock ? 'text-white' : 'text-gray-400'}`}>
+                    {product.variants?.length === 1 ? 'В корзину' : 'Выбрать'}
+                  </Text>
+               </>
+            )}
+          </Pressable>
+        </View>
+      </Pressable>
+
+      <AuthSheet 
+        isVisible={isAuthVisible} 
+        onClose={() => setIsAuthVisible(false)} 
+      />
+    </>
   );
 }

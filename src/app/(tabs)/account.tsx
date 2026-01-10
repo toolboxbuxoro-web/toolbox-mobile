@@ -1,28 +1,25 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import { ProfileHeader } from '../../components/profile/ProfileHeader';
 import { ProfileMenu } from '../../components/profile/ProfileMenu';
-import { LastOrderCard } from '../../components/profile/LastOrderCard';
 import { AuthSheet } from '../../components/auth/AuthSheet';
-import { useAuthStore } from '../../store/auth-store';
+import { EditProfileModal } from '../../components/profile/EditProfileModal';
+import { ChangePhoneSheet } from '../../components/profile/ChangePhoneSheet';
 
 export default function AccountScreen() {
-  const { isAuthenticated, customer } = useAuthStore();
-  const [isAuthVisible, setIsAuthVisible] = React.useState(false);
-
-  // Orders logic: Currently we don't have a global orders store or hook.
-  // We strictly follow the rule: hide "Last order" if data is missing.
-  const latestOrder = null; 
+  const [isAuthVisible, setIsAuthVisible] = useState(false);
+  const [isEditVisible, setIsEditVisible] = useState(false);
+  const [isChangePhoneVisible, setIsChangePhoneVisible] = useState(false);
 
   const handleLogin = () => setIsAuthVisible(true);
+  const handleEdit = () => setIsEditVisible(true);
+  const handleChangePhone = () => setIsChangePhoneVisible(true);
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
+    <View style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
       <Stack.Screen 
         options={{
-          headerTitle: "Профиль",
           headerShown: false,
         }} 
       />
@@ -30,20 +27,31 @@ export default function AccountScreen() {
       <ScrollView 
         className="flex-1" 
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 20 }}
+        bounces={true}
+        contentContainerStyle={{ paddingBottom: 40 }}
       >
-        <ProfileHeader onLoginPress={handleLogin} />
+        <ProfileHeader 
+          onLoginPress={handleLogin} 
+          onEditPress={handleEdit}
+        />
         
-        {/* Only show if real data exists (not implemented yet) */}
-        {latestOrder && <LastOrderCard order={latestOrder} />}
-
-        <ProfileMenu />
+        <ProfileMenu onPhoneChange={handleChangePhone} />
       </ScrollView>
 
       <AuthSheet 
         isVisible={isAuthVisible} 
         onClose={() => setIsAuthVisible(false)} 
       />
-    </SafeAreaView>
+
+      <EditProfileModal 
+        isVisible={isEditVisible} 
+        onClose={() => setIsEditVisible(false)} 
+      />
+
+      <ChangePhoneSheet 
+        isVisible={isChangePhoneVisible}
+        onClose={() => setIsChangePhoneVisible(false)}
+      />
+    </View>
   );
 }

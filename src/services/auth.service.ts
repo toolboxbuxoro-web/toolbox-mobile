@@ -58,6 +58,14 @@ class AuthService {
     return data.customer;
   }
 
+  async updateMe(updates: Partial<Pick<Customer, 'first_name' | 'last_name' | 'phone'>>): Promise<Customer> {
+    const data = await this.request<{ customer: Customer }>('/store/customers/me', {
+      method: 'POST',
+      body: JSON.stringify(updates),
+    });
+    return data.customer;
+  }
+
   async logout(): Promise<void> {
     try {
       await this.request('/store/mobile/auth/logout', { method: 'POST' });

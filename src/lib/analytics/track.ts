@@ -15,7 +15,9 @@ export type AnalyticsEvent =
   | 'auth_request_otp'
   | 'auth_verify_success'
   | 'auth_verify_failed'
-  | 'auth_logout';
+  | 'auth_logout'
+  | 'auth_update_profile_success'
+  | 'auth_update_profile_failed';
 
 export interface AnalyticsPayload {
   section_id?: string;

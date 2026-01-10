@@ -9,7 +9,10 @@ import {
   KeyboardAvoidingView, 
   Platform, 
   TouchableWithoutFeedback, 
-  Keyboard 
+  Keyboard,
+  StyleSheet,
+  Animated,
+  Easing 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/auth-store';
@@ -20,29 +23,95 @@ interface AuthSheetProps {
 }
 
 export function AuthSheet({ isVisible, onClose }: AuthSheetProps) {
-  const { requestOtp, verifyOtp, loading } = useAuthStore();
+  const { requestOtp, verifyOtp, status } = useAuthStore();
+  const loading = status === 'loading';
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [resendTimer, setResendTimer] = useState(0);
 
   const otpInputRef = useRef<TextInput>(null);
+  
+  // Animation refs
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(300)).current;
+
+  // Track internal visibility to handle exit animation
+  const [shouldRender, setShouldRender] = useState(isVisible);
+
+  useEffect(() => {
+    if (isVisible) {
+      setShouldRender(true);
+      // Reset to initial state before animating in
+      fadeAnim.setValue(0);
+      slideAnim.setValue(300);
+      
+      // Entry animation with slight delay to ensure modal is rendered
+      requestAnimationFrame(() => {
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+            easing: Easing.out(Easing.quad),
+          }),
+          Animated.timing(slideAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+            easing: Easing.bezier(0.33, 1, 0.68, 1), // Uzum-style fast/smooth easing
+          }),
+        ]).start();
+      });
+    } else if (shouldRender) {
+      // Exit animation only if modal is currently rendered
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+          easing: Easing.in(Easing.quad),
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 300,
+          duration: 250,
+          useNativeDriver: true,
+          easing: Easing.in(Easing.quad),
+        }),
+      ]).start(() => setShouldRender(false));
+    }
+  }, [isVisible, fadeAnim, slideAnim]);
 
   useEffect(() => {
     if (step === 'otp') {
       setTimeout(() => otpInputRef.current?.focus(), 100);
+      setResendTimer(60);
     }
   }, [step]);
 
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (resendTimer > 0) {
+      interval = setInterval(() => {
+        setResendTimer((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [resendTimer]);
+
   const handleRequestOtp = async () => {
-    if (phone.length < 9) {
+    // Clean phone before validation (remove spaces)
+    const cleanPhone = phone.replace(/\s/g, '');
+    if (cleanPhone.length < 9) {
       setError('Введите корректный номер телефона');
       return;
     }
     setError(null);
     try {
-      await requestOtp(phone);
+      await requestOtp(cleanPhone);
       setStep('otp');
+      setResendTimer(60);
     } catch (err: any) {
       setError(err.message || 'Ошибка запроса кода');
     }
@@ -52,8 +121,9 @@ export function AuthSheet({ isVisible, onClose }: AuthSheetProps) {
     setOtp(code);
     if (code.length === 6) {
       setError(null);
+      const cleanPhone = phone.replace(/\s/g, '');
       try {
-        await verifyOtp(phone, code);
+        await verifyOtp(cleanPhone, code);
         onClose();
         reset();
       } catch (err: any) {
@@ -77,14 +147,22 @@ export function AuthSheet({ isVisible, onClose }: AuthSheetProps) {
 
   return (
     <Modal
-      visible={isVisible}
+      visible={shouldRender}
       transparent
-      animationType="slide"
+      animationType="none"
       onRequestClose={handleClose}
     >
       <TouchableWithoutFeedback onPress={handleClose}>
-        <View className="flex-1 bg-black/50 justify-end">
+        <Animated.View 
+          className="flex-1 bg-black/50 justify-end"
+          style={{ opacity: fadeAnim }}
+        >
           <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+            <Animated.View 
+              style={{
+                transform: [{ translateY: slideAnim }]
+              }}
+            >
             <KeyboardAvoidingView 
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               className="bg-white rounded-t-3xl p-6"
@@ -103,19 +181,27 @@ export function AuthSheet({ isVisible, onClose }: AuthSheetProps) {
                   <Text className="text-gray-500 mb-4">
                     Введите номер телефона, чтобы войти или зарегистрироваться
                   </Text>
-                  <View className="flex-row items-center bg-gray-100 rounded-xl px-4 py-3 border border-gray-200">
-                    <Text className="text-gray-900 text-base font-medium mr-2">+998</Text>
+                  <View style={styles.phoneInputContainer}>
+                    <Text style={styles.phonePrefix}>+998</Text>
                     <TextInput
-                      className="flex-1 text-gray-900 text-base py-0"
+                      style={styles.phoneInput}
                       placeholder="90 123 45 67"
+                      placeholderTextColor="#9CA3AF"
                       keyboardType="phone-pad"
                       value={phone}
                       onChangeText={(val) => {
-                        setPhone(val);
+                        // Format: XX XXX XX XX
+                        const digits = val.replace(/\D/g, '').slice(0, 9);
+                        let formatted = '';
+                        if (digits.length > 0) formatted += digits.slice(0, 2);
+                        if (digits.length > 2) formatted += ' ' + digits.slice(2, 5);
+                        if (digits.length > 5) formatted += ' ' + digits.slice(5, 7);
+                        if (digits.length > 7) formatted += ' ' + digits.slice(7, 9);
+                        setPhone(formatted);
                         setError(null);
                       }}
                       autoFocus
-                      maxLength={15}
+                      maxLength={12}
                     />
                   </View>
                   
@@ -156,12 +242,24 @@ export function AuthSheet({ isVisible, onClose }: AuthSheetProps) {
 
                   <Pressable 
                     onPress={() => setStep('phone')}
-                    className="py-2"
+                    className="py-2 mb-2"
                   >
                     <Text className="text-primary text-center font-medium">
                       Изменить номер телефона
                     </Text>
                   </Pressable>
+
+                  {resendTimer > 0 ? (
+                    <Text className="text-gray-400 text-center text-sm">
+                      Отправить код повторно через {resendTimer} сек
+                    </Text>
+                  ) : (
+                    <Pressable onPress={handleRequestOtp}>
+                      <Text className="text-primary text-center font-bold text-sm">
+                        Отправить код повторно
+                      </Text>
+                    </Pressable>
+                  )}
 
                   {loading && (
                     <View className="mt-4 items-center">
@@ -173,9 +271,38 @@ export function AuthSheet({ isVisible, onClose }: AuthSheetProps) {
               
               <View className="h-8" />
             </KeyboardAvoidingView>
+            </Animated.View>
           </TouchableWithoutFeedback>
-        </View>
+        </Animated.View>
       </TouchableWithoutFeedback>
     </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  phoneInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  phonePrefix: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#111827',
+    marginRight: 8,
+  },
+  phoneInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#111827',
+    padding: 0,
+    margin: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+});

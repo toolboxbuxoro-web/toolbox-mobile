@@ -1,6 +1,7 @@
 import { View, Text, Pressable } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { formatMoney } from '../lib/formatters/money';
 
 export default function CheckoutSuccessScreen() {
   const router = useRouter();
@@ -11,9 +12,6 @@ export default function CheckoutSuccessScreen() {
     router.replace('/(tabs)/');
   };
 
-  const formatPrice = (price: string | string[]) => {
-    return Number(price).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' UZS';
-  };
 
   return (
     <View className="flex-1 bg-white items-center justify-center px-6">

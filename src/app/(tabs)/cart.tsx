@@ -6,16 +6,36 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCart } from '../../hooks/useCart';
 import { LineItem } from '../../types/cart';
 import { track } from '../../lib/analytics/track';
+import { formatMoney } from '../../lib/formatters/money';
+import { CartSkeleton } from '../../components/cart/CartSkeleton';
+import { useAuthStore } from '../../store/auth-store';
+import { AuthSheet } from '../../components/auth/AuthSheet';
+import { useState } from 'react';
+import { RefreshControl } from 'react-native';
 
 export default function CartScreen() {
   const router = useRouter();
   const { cart, loading, error, updateItem, removeItem, refreshCart } = useCart();
+  const { status } = useAuthStore();
+  const [isAuthVisible, setIsAuthVisible] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const formatPrice = (price: number): string => {
-    return price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' UZS';
+  const onRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshCart();
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
+
   const handleCheckout = () => {
+    if (status !== 'authorized') {
+      setIsAuthVisible(true);
+      return;
+    }
+
     try {
       track('checkout_start', { 
         total: cart?.total || 0,
@@ -41,9 +61,9 @@ export default function CartScreen() {
 
   if (loading && !cart) {
     return (
-      <View className="flex-1 bg-gray-50 items-center justify-center">
-        <ActivityIndicator size="large" color="#2563EB" />
-        <Text className="text-gray-500 mt-4">Загрузка корзины...</Text>
+      <View className="flex-1 bg-gray-50">
+        <Stack.Screen options={{ headerTitle: "Корзина" }} />
+        <CartSkeleton />
       </View>
     );
   }
@@ -82,9 +102,14 @@ export default function CartScreen() {
             <Ionicons name="cart-outline" size={48} color="#9ca3af" />
           </View>
           <Text className="text-gray-900 text-xl font-bold mb-2">Корзина пуста</Text>
-          <Text className="text-gray-500 text-sm text-center">
+          <Text className="text-gray-500 text-sm text-center mb-8">
             Добавьте товары в корзину, чтобы оформить заказ
           </Text>
+          <Link href="/(tabs)/catalog" asChild>
+            <Pressable className="bg-primary px-8 py-3 rounded-xl active:bg-red-700">
+              <Text className="text-white font-bold text-base">В каталог</Text>
+            </Pressable>
+          </Link>
         </View>
       ) : (
         <>
@@ -92,6 +117,13 @@ export default function CartScreen() {
             data={cart.items}
             keyExtractor={(item) => item.id}
             contentContainerClassName="p-4"
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={onRefresh}
+                tintColor="#DC2626"
+              />
+            }
             renderItem={({ item }) => (
               <View className="bg-white rounded-2xl p-4 mb-3 flex-row shadow-sm">
                 <View className="w-24 bg-gray-100 rounded-xl overflow-hidden mr-3" style={{ aspectRatio: 1 }}>
@@ -111,7 +143,7 @@ export default function CartScreen() {
                     {item.title}
                   </Text>
                   <Text className="text-primary text-lg font-bold mb-2">
-                    {formatPrice(item.unit_price)}
+                    {formatMoney(item.unit_price)}
                   </Text>
 
                   <View className="flex-row items-center justify-between">
@@ -156,7 +188,7 @@ export default function CartScreen() {
               <View className="flex-row justify-between">
                 <Text className="text-gray-900 text-lg font-bold">Итого</Text>
                 <Text className="text-primary text-xl font-bold">
-                  {formatPrice(cart.total)}
+                  {formatMoney(cart.total)}
                 </Text>
               </View>
             </View>
@@ -189,6 +221,11 @@ export default function CartScreen() {
           </View>
         </>
       )}
+
+      <AuthSheet 
+        isVisible={isAuthVisible} 
+        onClose={() => setIsAuthVisible(false)} 
+      />
     </SafeAreaView>
   );
 }

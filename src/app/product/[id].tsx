@@ -11,6 +11,9 @@ import { useProduct } from '@/hooks/useProduct';
 import { Alert } from 'react-native';
 import { ProductCard } from '@/components/product-card'; // Import ProductCard
 import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton
+import { formatMoney } from '@/lib/formatters/money';
+import { useAuthStore } from '@/store/auth-store';
+import { AuthSheet } from '@/components/auth/AuthSheet';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -54,33 +57,8 @@ function Accordion({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-// Mock Related Products - updated to match Product interface
-const RELATED_PRODUCTS: any[] = [
-  { 
-    id: 'rel_1', 
-    title: 'Набор инструментов FORCE', 
-    thumbnail: 'https://images.unsplash.com/photo-1581147036324-c47a03a81d48?w=800&q=80',
-    images: [],
-    variants: [{ id: 'v1', prices: [{ amount: 1250000, currency_code: 'uzs' }] }],
-    options: []
-  },
-  { 
-    id: 'rel_2', 
-    title: 'Перфоратор BOSCH', 
-    thumbnail: 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=800&q=80',
-    images: [],
-    variants: [{ id: 'v2', prices: [{ amount: 950000, currency_code: 'uzs' }] }],
-    options: []
-  },
-  { 
-    id: 'rel_3', 
-    title: 'Лазерный уровень', 
-    thumbnail: 'https://images.unsplash.com/photo-1572981779307-38b8cabb2407?w=800&q=80',
-    images: [],
-    variants: [{ id: 'v3', prices: [{ amount: 450000, currency_code: 'uzs' }] }],
-    options: []
-  },
-];
+// Related Products logic will be implemented in P1
+const RELATED_PRODUCTS: any[] = [];
 
 export default function ProductScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -96,6 +74,9 @@ export default function ProductScreen() {
   // Variant & Quantity State
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
+  const [isAdding, setIsAdding] = useState(false);
+  const [isAuthVisible, setIsAuthVisible] = useState(false);
+  const { status } = useAuthStore();
 
   // CRITICAL: Always auto-select first variant to prevent undefined variant bugs
   useEffect(() => {
@@ -114,10 +95,6 @@ export default function ProductScreen() {
   const isFav = product ? isFavorite(product.id) : false;
 
   // Formatting
-  const formatPrice = (price?: number) => {
-    if (price === undefined) return '...';
-    return price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-  };
 
   const handleToggleFavorite = () => {
     if (!product) return;
@@ -127,12 +104,23 @@ export default function ProductScreen() {
   // --- Derived data (Safe) ---
   const selectedVariant = product?.variants?.find(v => v.id === selectedVariantId);
   const getPrice = (variant: any) => {
+    // Medusa 2.0 prioritized source: calculated_price
+    if (variant?.calculated_price) {
+      return variant.calculated_price.calculated_amount;
+    }
     const uzsPrice = variant?.prices?.find((p: any) => p.currency_code?.toLowerCase() === 'uzs');
     return uzsPrice?.amount || variant?.prices?.[0]?.amount || 0;
   };
+
+  const getComparePrice = (variant: any) => {
+    if (variant?.calculated_price?.compare_at_amount) {
+      return variant.calculated_price.compare_at_amount;
+    }
+    return undefined;
+  };
   
   const price = selectedVariant ? getPrice(selectedVariant) : (product?.variants ? getPrice(product.variants[0]) : 0);
-  const oldPrice = undefined; 
+  const oldPrice = selectedVariant ? getComparePrice(selectedVariant) : (product?.variants ? getComparePrice(product.variants[0]) : undefined); 
   const images = product?.images?.map(img => img.url) || [];
   if (product?.thumbnail && !images.includes(product.thumbnail)) {
       images.unshift(product.thumbnail);
@@ -159,6 +147,31 @@ export default function ProductScreen() {
   };
   const handleDecrease = () => {
     if (quantity > 1) setQuantity(prev => prev - 1);
+  };
+
+  const handleAddToCart = async () => {
+    if (!selectedVariantId) {
+        Alert.alert("Внимание", "Пожалуйста, выберите вариант товара");
+        return;
+    }
+    
+    if (isAdding || isOutOfStock) return;
+
+    if (status !== 'authorized') {
+      setIsAuthVisible(true);
+      return;
+    }
+
+    setIsAdding(true);
+    try {
+      await addItem(selectedVariantId, quantity);
+      Alert.alert("Успешно", "Товар добавлен в корзину");
+    } catch (err) {
+      console.error('[ProductScreen] Add to cart error:', err);
+      Alert.alert("Ошибка", "Не удалось добавить товар в корзину");
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   return (
@@ -367,38 +380,40 @@ export default function ProductScreen() {
 
             <View className="bg-white mb-4">
                  <Accordion title="Информация о доставке">
-                    <Text className="text-gray-600 text-sm">Бесплатная доставка при заказе от 500 000 сум.</Text>
+                    <Text className="text-gray-600 text-sm">Бесплатная доставка при заказе от {formatMoney(500000)}.</Text>
                  </Accordion>
                  <Accordion title="Гарантия и возврат">
                     <Text className="text-gray-600 text-sm">Гарантия 1 год. Возврат в течение 10 дней.</Text>
                  </Accordion>
             </View>
 
-            <View className="bg-white pt-6 pb-2 mb-4">
-                <Text className="text-dark text-lg font-black uppercase mb-4 px-4">
-                    Похожие товары
-                </Text>
-                <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false} 
-                    contentContainerStyle={{ paddingHorizontal: 16 }}
-                >
-                    {RELATED_PRODUCTS.map((item) => (
-                        <View key={item.id} className="mr-3 w-[160px]">
-                            <ProductCard 
-                                product={item} 
-                                isFavorite={isFavorite(item.id)}
-                                onToggleFavorite={() => toggleFavorite({
-                                    id: item.id,
-                                    title: item.title,
-                                    handle: item.id,
-                                    thumbnail: item.thumbnail,
-                                } as any)}
-                            />
-                        </View>
-                    ))}
-                </ScrollView>
-            </View>
+            {RELATED_PRODUCTS.length > 0 && (
+              <View className="bg-white pt-6 pb-2 mb-4">
+                  <Text className="text-dark text-lg font-black uppercase mb-4 px-4">
+                      Похожие товары
+                  </Text>
+                  <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false} 
+                      contentContainerStyle={{ paddingHorizontal: 16 }}
+                  >
+                      {RELATED_PRODUCTS.map((item) => (
+                          <View key={item.id} className="mr-3 w-[160px]">
+                              <ProductCard 
+                                  product={item} 
+                                  isFavorite={isFavorite(item.id)}
+                                  onToggleFavorite={() => toggleFavorite({
+                                      id: item.id,
+                                      title: item.title,
+                                      handle: item.id,
+                                      thumbnail: item.thumbnail,
+                                  } as any)}
+                              />
+                          </View>
+                      ))}
+                  </ScrollView>
+              </View>
+            )}
           </ScrollView>
 
           <View className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg">
@@ -407,11 +422,11 @@ export default function ProductScreen() {
                     <View>
                         {oldPrice && (
                             <Text className="text-gray-400 text-xs line-through font-medium">
-                                {formatPrice(oldPrice)} сум
+                                {formatMoney(oldPrice)}
                             </Text>
                         )}
                         <Text className="text-dark text-xl font-black">
-                            {formatPrice(price * quantity)} <Text className="text-primary text-sm">сум</Text>
+                            {formatMoney(price * quantity)}
                         </Text>
                     </View>
                     <View className="items-end">
@@ -449,29 +464,21 @@ export default function ProductScreen() {
                     </View>
 
                     <Pressable 
-                      onPress={async () => {
-                        if (!selectedVariantId) {
-                            Alert.alert("Внимание", "Пожалуйста, выберите вариант товара");
-                            return;
-                        }
-                        if (isOutOfStock) return;
-                        try {
-                          addItem(selectedVariantId, quantity);
-                          Alert.alert("Успешно", "Товар добавлен в корзину");
-                        } catch (err) {
-                          Alert.alert("Ошибка", "Не удалось добавить товар");
-                        }
-                      }}
-                      disabled={!selectedVariantId || isOutOfStock}
-                      className={`flex-1 rounded-sm py-3 justify-center items-center shadow-sm ${!selectedVariantId || isOutOfStock ? 'bg-gray-300' : 'bg-primary active:bg-primary-dark'}`}
+                      onPress={handleAddToCart}
+                      disabled={!selectedVariantId || isOutOfStock || isAdding}
+                      className={`flex-1 rounded-sm py-3 justify-center items-center shadow-sm ${(!selectedVariantId || isOutOfStock || isAdding) ? 'bg-gray-300' : 'bg-primary active:bg-primary-dark'}`}
                     >
-                        <Text className="text-white font-black uppercase tracking-wider text-sm">
-                            {!selectedVariantId 
-                              ? 'Выберите вариант' 
-                              : isOutOfStock 
-                                  ? 'Нет в наличии' 
-                                  : 'В корзину'}
-                        </Text>
+                        {isAdding ? (
+                          <ActivityIndicator color="white" size="small" />
+                        ) : (
+                          <Text className="text-white font-black uppercase tracking-wider text-sm">
+                              {!selectedVariantId 
+                                ? 'Выберите вариант' 
+                                : isOutOfStock 
+                                    ? 'Нет в наличии' 
+                                    : 'В корзину'}
+                          </Text>
+                        )}
                     </Pressable>
                     
                     <Pressable 
@@ -487,6 +494,11 @@ export default function ProductScreen() {
                 </View>
             </SafeAreaView>
           </View>
+
+          <AuthSheet 
+            isVisible={isAuthVisible} 
+            onClose={() => setIsAuthVisible(false)} 
+          />
         </>
       )}
     </View>

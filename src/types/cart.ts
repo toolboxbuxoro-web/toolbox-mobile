@@ -26,6 +26,16 @@ export interface Cart {
   subtotal: number;
   total: number;
   currency_code: string;
+  completed_at?: string | null;
+  payment_collection?: {
+    id: string;
+    payment_sessions?: Array<{
+      id: string;
+      provider_id: string;
+      status: string;
+      data: Record<string, any>;
+    }>;
+  };
 }
 
 export interface StoreCartResponse {
