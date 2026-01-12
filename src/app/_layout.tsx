@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import "../../global.css";
 
 const queryClient = new QueryClient({
@@ -24,16 +25,42 @@ export default function RootLayout() {
   }, [restoreSession]);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <Stack>
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="catalog/[collectionId]" options={{ headerShown: true }} />
-        <Stack.Screen name="product/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="search" options={{ headerShown: false }} />
-        <Stack.Screen name="checkout" options={{ headerShown: true, title: 'Оформление' }} />
-        <Stack.Screen name="checkout-success" options={{ headerShown: false }} />
-      </Stack>
-    </QueryClientProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryClientProvider client={queryClient}>
+        <Stack>
+          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="catalog/[categoryHandle]" options={{ headerShown: true }} />
+          <Stack.Screen name="product/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="search" options={{ headerShown: false }} />
+          <Stack.Screen name="checkout" options={{ headerShown: true, title: 'Оформление' }} />
+          <Stack.Screen name="checkout-success" options={{ headerShown: false }} />
+          {/* Payment WebView: no system header, no gestures - custom X only */}
+          <Stack.Screen 
+            name="payment-webview" 
+            options={{ 
+              headerShown: false,
+              gestureEnabled: false,
+              animation: 'slide_from_bottom',
+            }} 
+          />
+          {/* Order Success: no back navigation */}
+          <Stack.Screen 
+            name="order-success" 
+            options={{ 
+              headerShown: false,
+              gestureEnabled: false,
+            }} 
+          />
+          <Stack.Screen 
+            name="orders" 
+            options={{ 
+              headerShown: true,
+              title: 'Мои заказы',
+            }} 
+          />
+        </Stack>
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -17,7 +17,10 @@ export type AnalyticsEvent =
   | 'auth_verify_failed'
   | 'auth_logout'
   | 'auth_update_profile_success'
-  | 'auth_update_profile_failed';
+  | 'auth_update_profile_failed'
+  | 'screen_view'
+  | 'search_performed'
+  | 'search_no_results';
 
 export interface AnalyticsPayload {
   section_id?: string;

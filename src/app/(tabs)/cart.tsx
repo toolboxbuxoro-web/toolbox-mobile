@@ -12,6 +12,8 @@ import { useAuthStore } from '../../store/auth-store';
 import { AuthSheet } from '../../components/auth/AuthSheet';
 import { useState } from 'react';
 import { RefreshControl } from 'react-native';
+import { UpsellRail } from '../../components/cart/UpsellRail';
+import { useCartRecommendations } from '../../hooks/useCartRecommendations';
 
 export default function CartScreen() {
   const router = useRouter();
@@ -19,6 +21,11 @@ export default function CartScreen() {
   const { status } = useAuthStore();
   const [isAuthVisible, setIsAuthVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  console.log('[CartScreen] Render. Cart:', cart?.items?.length, 'Loading:', loading);
+
+  // UPS Recommendations
+  const { data: upsellProducts, isLoading: isUpsellLoading } = useCartRecommendations(cart);
+  console.log('[CartScreen] UPS state:', { items: upsellProducts?.length, loading: isUpsellLoading });
 
   const onRefresh = async () => {
     setIsRefreshing(true);
@@ -114,15 +121,19 @@ export default function CartScreen() {
       ) : (
         <>
           <FlatList
+            className="flex-1"
             data={cart.items}
             keyExtractor={(item) => item.id}
-            contentContainerClassName="p-4"
+            contentContainerClassName="p-4 pb-32"
             refreshControl={
               <RefreshControl
                 refreshing={isRefreshing}
                 onRefresh={onRefresh}
                 tintColor="#DC2626"
               />
+            }
+            ListFooterComponent={
+              <UpsellRail products={upsellProducts || []} isLoading={isUpsellLoading} />
             }
             renderItem={({ item }) => (
               <View className="bg-white rounded-2xl p-4 mb-3 flex-row shadow-sm">

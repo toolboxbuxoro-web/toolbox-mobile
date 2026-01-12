@@ -1,21 +1,42 @@
-import { View, Text, FlatList, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ProductCard } from '../../components/product-card';
-import { useProducts } from '@/hooks/useProducts';
-import { useCollection } from '@/hooks/useCollections';
+import { useCategoryByHandle } from '@/hooks/useCategories';
+import { useInfiniteProducts } from '@/hooks/useInfiniteProducts';
+import { useMemo, useCallback } from 'react';
 
-export default function CollectionProductsScreen() {
-  const { collectionId } = useLocalSearchParams<{ collectionId: string }>();
+export default function CategoryProductsScreen() {
+  const { categoryHandle } = useLocalSearchParams<{ categoryHandle: string }>();
   const router = useRouter();
   
-  // 1. Fetch Collection details (for the header title)
-  const { data: collection, isLoading: isLoadingCollection } = useCollection(collectionId!);
+  // 1. Fetch Category details (for the header title)
+  const { data: category, isLoading: isLoadingCategory } = useCategoryByHandle(categoryHandle!);
   
-  // 2. Fetch Products filtered by collection
-  const { data: products, isLoading: isLoadingProducts, error, refetch } = useProducts(`collection_id=${collectionId}`);
+  // 2. Fetch Products with infinite scroll
+  const { 
+    data,
+    isLoading: isLoadingProducts, 
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    error, 
+    refetch 
+  } = useInfiniteProducts({ 
+    categoryId: category?.id,
+    enabled: !!category?.id 
+  });
   
-  const categoryTitle = collection?.title || 'Загрузка...';
+  const products = useMemo(() => data?.pages.flat() ?? [], [data]);
+
+  const loadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  
+  const categoryTitle = category?.name || 'Загрузка...';
 
   const handleProductPress = (productId: string) => {
     router.push(`/product/${productId}`);
@@ -37,7 +58,7 @@ export default function CollectionProductsScreen() {
           ),
           headerRight: () => (
              <Pressable>
-               <Ionicons name="options-outline" size={24} color="#FFFFFF" />
+                <Ionicons name="options-outline" size={24} color="#FFFFFF" />
              </Pressable>
           ),
           headerShadowVisible: false,
@@ -51,7 +72,7 @@ export default function CollectionProductsScreen() {
          </Text>
       </View>
 
-      {(isLoadingCollection || isLoadingProducts) ? (
+      {(isLoadingCategory || (isLoadingProducts && products.length === 0)) ? (
         <View className="flex-1 items-center justify-center">
             <ActivityIndicator size="large" color="#333" />
         </View>
@@ -63,12 +84,15 @@ export default function CollectionProductsScreen() {
             </Pressable>
         </View>
       ) : (
-        <FlatList
+        <FlashList
             data={products}
             numColumns={2}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{ padding: 8, paddingBottom: 40 }}
-            columnWrapperStyle={{ justifyContent: 'space-between' }}
+            contentContainerStyle={{ paddingHorizontal: 4, paddingTop: 8, paddingBottom: 40 }}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.3}
+            refreshing={isLoadingProducts && products.length > 0}
+            onRefresh={refetch}
             ListEmptyComponent={() => (
             <View className="flex-1 items-center justify-center pt-24 opactiy-50">
                 <View className="w-24 h-24 bg-gray-200 rounded-full items-center justify-center mb-4 border-2 border-gray-300 border-dashed">
@@ -76,12 +100,23 @@ export default function CollectionProductsScreen() {
                 </View>
                 <Text className="text-dark text-xl font-black uppercase tracking-wide">Список пуст</Text>
                 <Text className="text-gray-500 text-sm mt-2 text-center px-10">
-                    В этой коллекции пока нет товаров.
+                    В этой категории пока нет товаров.
                 </Text>
             </View>
             )}
+            ListFooterComponent={() => (
+              <View className="py-6 items-center">
+                {isFetchingNextPage ? (
+                  <ActivityIndicator size="small" color="#DC2626" />
+                ) : !hasNextPage && products.length > 0 ? (
+                  <Text className="text-gray-400 text-xs uppercase font-bold tracking-widest">
+                    Все товары загружены
+                  </Text>
+                ) : null}
+              </View>
+            )}
             renderItem={({ item }) => (
-            <View style={{ width: '48%' }}>
+            <View style={{ flex: 1, paddingHorizontal: 4, paddingBottom: 8 }}>
                 <ProductCard
                     product={item}
                     onPress={() => handleProductPress(item.id)}

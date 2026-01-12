@@ -1,11 +1,18 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator, Alert } from 'react-native';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator, Alert, Linking } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { cartService } from '../services/cart.service';
 import { useCartStore } from '../store/cart-store';
+import type { ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
+
+// Use env or default - allows different domains for staging/prod
+const STORE_DOMAIN = process.env.EXPO_PUBLIC_STORE_URL?.replace(/^https?:\/\//, '') || 'toolbox-tools.uz';
+
+// Mobile Safari UA for better responsive layout from payment providers
+const MOBILE_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
 
 type PaymentStatus = 'idle' | 'checking' | 'placing_order' | 'error' | 'cancelled';
 
@@ -21,10 +28,29 @@ export default function PaymentWebViewScreen() {
   
   const [status, setStatus] = useState<PaymentStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
+  // Refs for preventing race conditions and memory leaks
   const pollingRef = useRef<boolean>(false);
+  const completingRef = useRef<boolean>(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
+  // Cleanup on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, []);
 
   const completeOrder = async () => {
-    if (status === 'placing_order' || !cartId) return;
+    // Guard against double-complete race condition
+    if (completingRef.current || status === 'placing_order' || !cartId) {
+      console.log('[PaymentWebView] Skipping duplicate complete call');
+      return;
+    }
+    completingRef.current = true;
     setStatus('placing_order');
     
     try {
@@ -66,16 +92,28 @@ export default function PaymentWebViewScreen() {
         console.log(`[PaymentWebView] Status: ${paymentStatus}`);
 
         if (paymentStatus === 'completed') {
-          console.log('[PaymentWebView] Payment completed (Click or redirect), navigating to orders...');
+          // Click backend auto-completes order - we don't have displayId
+          // Redirect to orders page where user can see their order
+          console.log('[PaymentWebView] Payment completed (Click), redirecting to orders...');
           resetCart();
-          router.replace({ pathname: '/order-success', params: {} });
+          router.replace({ pathname: '/orders' });
           return true;
         }
 
         if (paymentStatus === 'authorized') {
-          console.log('[PaymentWebView] Payment authorized (Payme), completing order...');
-          await completeOrder();
-          return true;
+          // Payme: authorized means payment confirmed, mobile must call complete()
+          // Click: backend creates order automatically, wait for 'completed' status
+          const isClickProvider = providerId?.includes('click');
+          
+          if (isClickProvider) {
+            console.log('[PaymentWebView] Click authorized, waiting for backend to complete order...');
+            // Keep polling - Click will show 'completed' once order is created
+            return false;
+          } else {
+            console.log('[PaymentWebView] Payme authorized, completing order...');
+            await completeOrder();
+            return true;
+          }
         }
 
         if (paymentStatus === 'cancelled') {
@@ -99,12 +137,15 @@ export default function PaymentWebViewScreen() {
       }
     };
 
-    const interval = setInterval(async () => {
+    intervalRef.current = setInterval(async () => {
       attempts++;
       const isDone = await poll();
       
       if (isDone || attempts >= maxAttempts) {
-        clearInterval(interval);
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
         pollingRef.current = false;
         if (!isDone) {
           setStatus('error');
@@ -118,16 +159,23 @@ export default function PaymentWebViewScreen() {
     const { url: navUrl } = navState;
     console.log('[PaymentWebView] Navigating to:', navUrl);
 
-    // Detect callback redirects - payment was successful or returned to app
-    if (
-      navUrl.includes('payment_status=checking') || 
-      navUrl.includes('payme-callback') || 
-      navUrl.includes('click-callback') ||
-      navUrl.includes('order-success')
-    ) {
+    // Parse URL to check the path, not query params (using configurable domain)
+    // Payme: redirects to /api/payme-callback → /checkout?payment_status=checking
+    const isPaymeCallback = navUrl.includes(`${STORE_DOMAIN}/api/payme-callback`) && !navUrl.includes('back=');
+    
+    // Click: redirects to /api/click-callback → /?payment_success=true
+    const isClickCallback = navUrl.includes(`${STORE_DOMAIN}/api/click-callback`) && !navUrl.includes('return_url=');
+    const isClickSuccess = navUrl.includes('payment_success=true');
+    
+    // Generic patterns
+    const isPaymentStatusCheck = navUrl.includes('payment_status=checking');
+    const isOrderSuccess = navUrl.includes('/order-success') || navUrl.includes('/order/confirmed');
+    
+    if (isPaymeCallback || isClickCallback || isClickSuccess || isPaymentStatusCheck || isOrderSuccess) {
       console.log('[PaymentWebView] Callback detected, starting polling...');
       startPolling();
     }
+    
     
     // Detect cancel patterns
     if (navUrl.includes('payment_error=cancelled')) {
@@ -136,15 +184,96 @@ export default function PaymentWebViewScreen() {
     }
   };
 
-  const handleClose = () => {
-    if (status === 'checking' || status === 'placing_order') {
-      Alert.alert('Внимание', 'Проверка платежа ещё не завершена. Вы уверены, что хотите закрыть окно?', [
-        { text: 'Нет', style: 'cancel' },
-        { text: 'Да', style: 'destructive', onPress: () => router.back() }
-      ]);
-    } else {
-      router.back();
+  /**
+   * Handle deep links in WebView (click://, payme://, intent://)
+   * Opens external apps like Click or Payme when user taps "Open in app"
+   */
+  const handleShouldStartLoad = (request: ShouldStartLoadRequest): boolean => {
+    const { url: reqUrl } = request;
+    
+    // Check for deep link schemes
+    const isDeepLink = 
+      reqUrl.startsWith('click://') || 
+      reqUrl.startsWith('payme://') ||
+      reqUrl.startsWith('intent://') ||
+      reqUrl.startsWith('uzumbank://');
+    
+    if (isDeepLink) {
+      console.log('[PaymentWebView] Deep link detected, opening external app:', reqUrl);
+      
+      Linking.openURL(reqUrl).catch((err) => {
+        console.warn('[PaymentWebView] Failed to open deep link:', err);
+        // App might not be installed - continue in WebView
+        Alert.alert(
+          'Приложение не найдено',
+          'Пожалуйста, оплатите через мобильную версию сайта или установите приложение Click/Payme.'
+        );
+      });
+      
+      // Start polling since user is likely going to external app
+      startPolling();
+      
+      // Don't load this URL in WebView
+      return false;
     }
+    
+    return true;
+  };
+
+  const handleClose = async () => {
+    // Check current payment status to decide where to navigate
+    if (cartId) {
+      try {
+        const currentStatus = await cartService.checkPaymentStatus(cartId);
+        
+        // If payment was successful, go to success/orders
+        if (currentStatus === 'completed' || currentStatus === 'authorized') {
+          resetCart();
+          
+          // Clear entire navigation stack and go to tabs, then orders
+          if (currentStatus === 'completed') {
+            // Click: order already created by backend
+            router.dismissAll();
+            router.replace({ pathname: '/(tabs)' });
+            setTimeout(() => router.push({ pathname: '/orders' }), 100);
+          } else {
+            // Payme: need to complete the order
+            try {
+              const order = await cartService.complete(cartId);
+              router.dismissAll();
+              router.replace({ 
+                pathname: '/order-success',
+                params: { displayId: order.display_id || order.id }
+              });
+            } catch {
+              router.dismissAll();
+              router.replace({ pathname: '/(tabs)' });
+              setTimeout(() => router.push({ pathname: '/orders' }), 100);
+            }
+          }
+          return;
+        }
+      } catch (err) {
+        console.log('[PaymentWebView] Status check on close failed:', err);
+      }
+    }
+    
+    // Payment not completed - confirm before going back to checkout
+    Alert.alert(
+      'Прервать оплату?',
+      'Платёж не завершён. Вернуться к оформлению?',
+      [
+        { text: 'Продолжить оплату', style: 'cancel' },
+        { 
+          text: 'Вернуться', 
+          style: 'destructive', 
+          onPress: () => {
+            router.dismissAll();
+            router.replace({ pathname: '/checkout' });
+          }
+        }
+      ]
+    );
   };
 
   return (
@@ -177,11 +306,15 @@ export default function PaymentWebViewScreen() {
         ) : (
           <WebView
             source={{ uri: url! }}
+            userAgent={MOBILE_USER_AGENT}
             onNavigationStateChange={handleNavigationStateChange}
+            onShouldStartLoadWithRequest={handleShouldStartLoad}
             startInLoadingState
             renderLoading={() => (
               <View style={styles.loading}>
                 <ActivityIndicator size="large" color="#FF6B00" />
+                <Text style={styles.loadingText}>Загрузка платёжной страницы...</Text>
+                <Text style={styles.loadingSubtext}>Не закрывайте окно</Text>
               </View>
             )}
             incognito={true}
@@ -255,5 +388,18 @@ const styles = StyleSheet.create({
   retryText: {
     color: '#007AFF',
     fontWeight: '600',
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  loadingSubtext: {
+    fontSize: 13,
+    color: '#888',
+    marginTop: 6,
+    textAlign: 'center',
   }
 });

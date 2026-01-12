@@ -70,6 +70,36 @@ class CartQueueService {
        const errorMessage = error?.message || '';
        const isInventoryError = errorMessage.includes('insufficient_inventory');
        const isNotFoundError = errorMessage.includes('not_found');
+       const isCompletedError = errorMessage.includes('already completed');
+
+       // Handle cart already completed - reset and create new cart
+       if (isCompletedError) {
+         console.warn('[CartQueue] Cart already completed. Resetting and creating new cart...');
+         const { resetCart, setCartId, setCart } = useCartStore.getState();
+         resetCart();
+         
+         // Create new cart and retry the mutation
+         try {
+           const newCart = await cartService.createCart();
+           setCartId(newCart.id);
+           setCart(newCart);
+           console.log('[CartQueue] New cart created:', newCart.id);
+           
+           // Don't dequeue - the mutation will be retried with new cart
+           this.isFlushing = false;
+           this.flush();
+           return;
+         } catch (createError) {
+           console.error('[CartQueue] Failed to create new cart:', createError);
+           Alert.alert(
+             "Ошибка корзины",
+             "Не удалось создать новую корзину. Пожалуйста, перезапустите приложение."
+           );
+         }
+         
+         this.isFlushing = false;
+         return;
+       }
 
        if (isInventoryError || isNotFoundError) {
          console.warn(`[CartQueue] Poison pill detected (${isInventoryError ? 'inventory' : 'not_found'}). Removing from queue.`);

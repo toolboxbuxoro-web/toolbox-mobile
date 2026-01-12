@@ -36,12 +36,14 @@ class CartService {
   }
 
   async getCart(cartId: string): Promise<Cart> {
-    const data = await this.request<StoreCartResponse>(`/store/carts/${cartId}`);
+    const fields = '*items.variant.product';
+    const data = await this.request<StoreCartResponse>(`/store/carts/${cartId}?fields=${fields}`);
     return data.cart;
   }
 
   async addItem(cartId: string, variantId: string, quantity: number): Promise<Cart> {
-    const data = await this.request<StoreCartResponse>(`/store/carts/${cartId}/line-items`, {
+    const fields = '*items.variant.product';
+    const data = await this.request<StoreCartResponse>(`/store/carts/${cartId}/line-items?fields=${fields}`, {
       method: 'POST',
       body: JSON.stringify({ variant_id: variantId, quantity }),
     });
@@ -49,7 +51,8 @@ class CartService {
   }
 
   async updateItem(cartId: string, lineItemId: string, quantity: number): Promise<Cart> {
-    const data = await this.request<StoreCartResponse>(`/store/carts/${cartId}/line-items/${lineItemId}`, {
+    const fields = '*items.variant.product';
+    const data = await this.request<StoreCartResponse>(`/store/carts/${cartId}/line-items/${lineItemId}?fields=${fields}`, {
       method: 'POST',
       body: JSON.stringify({ quantity }),
     });
@@ -57,7 +60,8 @@ class CartService {
   }
 
   async removeItem(cartId: string, lineItemId: string): Promise<Cart> {
-    const data = await this.request<StoreCartResponse>(`/store/carts/${cartId}/line-items/${lineItemId}`, {
+    const fields = '*items.variant.product';
+    const data = await this.request<StoreCartResponse>(`/store/carts/${cartId}/line-items/${lineItemId}?fields=${fields}`, {
       method: 'DELETE',
     });
     return data.cart;
@@ -74,6 +78,7 @@ class CartService {
       postal_code?: string;
     };
     email?: string;
+    metadata?: Record<string, any>;
   }): Promise<Cart> {
     const data = await this.request<StoreCartResponse>(`/store/carts/${cartId}`, {
       method: 'POST',

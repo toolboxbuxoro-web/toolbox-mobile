@@ -7,7 +7,7 @@ import { HomeSection, HomeBanner } from '../../types/mobile';
  */
 
 import { BannerSlider } from './BannerSlider';
-import { CategoryChips } from './CategoryChips';
+import { CategoryGrid } from './CategoryGrid';
 import { ProductRail } from './ProductRail';
 
 interface SectionRendererProps {
@@ -19,21 +19,21 @@ export function SectionRenderer({ section, index }: SectionRendererProps) {
   const commonProps = {
     id: section.id,
     position: index,
-    experiment: (section as any)._experiment,
   };
 
   switch (section.type) {
     case 'banner_slider':
-      return <BannerSlider banners={section.data} {...commonProps} />;
+      return <BannerSlider {...commonProps} />;
 
     case 'category_chips':
-      return <CategoryChips {...commonProps} />;
+    case 'category_grid':
+      return <CategoryGrid {...commonProps} />;
 
     case 'product_rail':
       return (
         <ProductRail 
           collectionId={section.collection_id} 
-          title={section.title.ru} 
+          title={section.title.ru} // Assuming we want RU for now, can be locale-aware later
           {...commonProps}
         />
       );

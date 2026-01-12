@@ -5,7 +5,15 @@ export interface ProductCategory {
   id: string;
   name: string;
   handle: string;
-  metadata?: any;
+  parent_category_id: string | null;
+  parent_category?: ProductCategory | null;
+  category_children?: ProductCategory[];
+  metadata?: {
+    icon_url?: string;
+    image_url?: string;
+    name_uz?: string;
+    [key: string]: any;
+  };
 }
 
 interface StoreCategoriesRes {
@@ -34,8 +42,18 @@ class CategoryService {
   }
 
   async getCategories(queryParams: string = ''): Promise<ProductCategory[]> {
-    const data = await this.request<StoreCategoriesRes>(`/store/product-categories${queryParams ? `?${queryParams}` : ''}`);
-    return data.product_categories;
+    // Fetch only root categories (parent_category_id is null) with their children
+    const params = queryParams 
+      ? `${queryParams}&include_descendants_tree=true` 
+      : 'include_descendants_tree=true';
+    const data = await this.request<StoreCategoriesRes>(`/store/product-categories?${params}`);
+    // Filter to only root categories (will contain nested children)
+    return data.product_categories.filter(cat => !cat.parent_category_id);
+  }
+
+  async getCategoryByHandle(handle: string): Promise<ProductCategory | null> {
+    const data = await this.request<StoreCategoriesRes>(`/store/product-categories?handle=${handle}&include_descendants_tree=true`);
+    return data.product_categories.length > 0 ? data.product_categories[0] : null;
   }
 }
 

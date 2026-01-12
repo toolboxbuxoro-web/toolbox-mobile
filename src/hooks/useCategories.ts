@@ -7,3 +7,11 @@ export function useCategories(queryParams: string = '') {
     queryFn: () => categoryService.getCategories(queryParams),
   });
 }
+
+export function useCategoryByHandle(handle: string) {
+  return useQuery<ProductCategory | null, Error>({
+    queryKey: ['category', handle],
+    queryFn: () => categoryService.getCategoryByHandle(handle),
+    enabled: !!handle,
+  });
+}

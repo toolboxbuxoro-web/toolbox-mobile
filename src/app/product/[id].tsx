@@ -1,23 +1,149 @@
-import { View, Text, ScrollView, Pressable, Dimensions, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, Pressable, Dimensions, FlatList, ActivityIndicator, Modal, PanResponder, Animated as RNAnimated } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useFavoritesStore } from '@/store/favorites-store';
 import { useCart } from '@/hooks/useCart';
 import { useProduct } from '@/hooks/useProduct';
+import { Product } from '@/types/product';
 import { Alert } from 'react-native';
-import { ProductCard } from '@/components/product-card'; // Import ProductCard
-import { Skeleton } from '@/components/ui/skeleton'; // Import Skeleton
+import { ProductCard } from '@/components/product-card'; 
+import { Skeleton } from '@/components/ui/skeleton'; 
 import { formatMoney } from '@/lib/formatters/money';
 import { useAuthStore } from '@/store/auth-store';
 import { AuthSheet } from '@/components/auth/AuthSheet';
+import { useRecentlyViewedStore } from '@/store/recently-viewed-store';
+import { useRecommendations } from '@/hooks/useRecommendations';
+import { RecommendationRail } from '@/components/recommendations/recommendation-rail';
+import { BoughtTogetherCard } from '@/components/recommendations/BoughtTogetherCard';
+import { ReviewSheet } from '@/components/reviews/ReviewSheet';
+import { useProductReviews } from '@/hooks/useProductReviews';
+import { GestureDetector, Gesture, Directions } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 // --- COMPONENTS ---
+interface ImageGalleryModalProps {
+  isVisible: boolean;
+  images: string[];
+  initialIndex: number;
+  onClose: (index: number) => void;
+}
+
+function ImageGalleryModal({ isVisible, images, initialIndex, onClose }: ImageGalleryModalProps) {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  
+  // Reanimated Shared Values
+  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(1);
+
+  useEffect(() => {
+    if (isVisible) {
+      setCurrentIndex(initialIndex);
+      translateY.value = 0;
+      opacity.value = 1;
+    }
+  }, [isVisible, initialIndex]);
+
+  const close = () => {
+    onClose(currentIndex);
+  };
+
+  // Gesture
+  const panGesture = useMemo(() => Gesture.Pan()
+    .onChange((event) => {
+      // Create a resistance effect if dragging up (negative dy)
+      // Allow unrestricted dragging down
+      if (event.translationY > 0) {
+        translateY.value = event.translationY;
+        const newOpacity = 1 - (event.translationY / (SCREEN_HEIGHT * 0.5));
+        opacity.value = Math.max(0, Math.min(1, newOpacity));
+      } else {
+        // Resistance when pulling up
+        translateY.value = event.translationY * 0.2;
+      }
+    })
+    .onEnd((event) => {
+      if (event.translationY > 80 || event.velocityY > 600) {
+        // Just close immediately, exactly like the close button
+        runOnJS(close)();
+      } else {
+        // Reset
+        translateY.value = withSpring(0, { damping: 15, stiffness: 150 });
+        opacity.value = withSpring(1);
+      }
+    }), [close, translateY, opacity]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    opacity: opacity.value,
+  }));
+
+  if (!isVisible) return null;
+
+  return (
+    <Modal visible={isVisible} transparent animationType="fade" onRequestClose={() => onClose(currentIndex)}>
+      <View style={{ flex: 1, backgroundColor: 'black' }}>
+        <GestureDetector gesture={panGesture}>
+          <Animated.View style={[{ flex: 1, backgroundColor: 'black' }, animatedStyle]}>
+            <SafeAreaView className="flex-1">
+              {/* Header */}
+              <View className="flex-row justify-between items-center px-6 pt-12 pb-4 z-10 absolute top-0 left-0 right-0">
+                <View className="bg-black/40 px-4 py-2 rounded-full border border-white/20 backdrop-blur-md">
+                  <Text className="text-white font-bold text-base">{currentIndex + 1} / {images.length}</Text>
+                </View>
+                <Pressable 
+                  onPress={() => onClose(currentIndex)} 
+                  className="bg-black/40 p-3 rounded-full border border-white/20 active:bg-white/20 backdrop-blur-md"
+                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close" size={28} color="white" />
+                </Pressable>
+              </View>
+              
+              <View className="flex-1 justify-center">
+                <FlatList
+                  data={images}
+                  horizontal
+                  pagingEnabled
+                  initialScrollIndex={initialIndex}
+                  getItemLayout={(_, index) => ({
+                      length: SCREEN_WIDTH,
+                      offset: SCREEN_WIDTH * index,
+                      index,
+                  })}
+                  decelerationRate="fast"
+                  snapToInterval={SCREEN_WIDTH}
+                  snapToAlignment="start"
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={(ev) => {
+                      const index = Math.round(ev.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+                      if (index !== currentIndex && index >= 0 && index < images.length) {
+                        setCurrentIndex(index);
+                      }
+                  }}
+                  renderItem={({ item }) => (
+                      <View style={{ width: SCREEN_WIDTH, height: '100%', justifyContent: 'center' }}>
+                      <Image
+                          source={{ uri: item }}
+                          style={{ width: '100%', height: '80%' }}
+                          contentFit="contain"
+                      />
+                      </View>
+                  )}
+                  />
+              </View>
+            </SafeAreaView>
+          </Animated.View>
+        </GestureDetector>
+      </View>
+    </Modal>
+  );
+}
 
 function FeatureItem({ text }: { text: string }) {
   return (
@@ -57,9 +183,6 @@ function Accordion({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-// Related Products logic will be implemented in P1
-const RELATED_PRODUCTS: any[] = [];
-
 export default function ProductScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   // Use the hook for data
@@ -67,9 +190,10 @@ export default function ProductScreen() {
   
   const [activeImage, setActiveImage] = useState(0);
   const [showAllSpecs, setShowAllSpecs] = useState(false);
-  const { addItem } = useCart();
 
   const router = useRouter();
+  const [flatListRef, setFlatListRef] = useState<FlatList | null>(null);
+  const [isGalleryVisible, setIsGalleryVisible] = useState(false);
 
   // Variant & Quantity State
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
@@ -77,6 +201,29 @@ export default function ProductScreen() {
   const [isAdding, setIsAdding] = useState(false);
   const [isAuthVisible, setIsAuthVisible] = useState(false);
   const { status } = useAuthStore();
+  
+  // Recommendations
+  const { addToRecentlyViewed } = useRecentlyViewedStore();
+  const { 
+    similarProducts, 
+    boughtTogetherProducts, 
+    recentlyViewedProducts, 
+    isLoading: isRecsLoading 
+  } = useRecommendations(product || undefined);
+
+  // Reviews (P0)
+  const { data: reviewsData } = useProductReviews(id);
+  const reviews = reviewsData?.reviews || [];
+  const reviewsCount = reviewsData?.count || 0;
+  const avgRating = reviewsData?.avg_rating || 0;
+  const [isReviewSheetVisible, setIsReviewSheetVisible] = useState(false);
+
+  // Track Recent View
+  useEffect(() => {
+    if (id) {
+      addToRecentlyViewed(id);
+    }
+  }, [id, addToRecentlyViewed]);
 
   // CRITICAL: Always auto-select first variant to prevent undefined variant bugs
   useEffect(() => {
@@ -142,21 +289,78 @@ export default function ProductScreen() {
   const inStock = selectedVariant && (!manageInventory || inventoryQuantity > 0 || canBackorder); 
   const isOutOfStock = !inStock || !selectedVariant;
   
-  const handleIncrease = () => {
-    if (quantity < maxQuantity) setQuantity(prev => prev + 1);
-  };
-  const handleDecrease = () => {
-    if (quantity > 1) setQuantity(prev => prev - 1);
+  /* --- CART LOGIC --- */
+  // Find if current variant is in cart
+  const { cart, addItem, updateItem, removeItem } = useCart();
+  const cartItem = cart?.items?.find(item => item.variant_id === selectedVariantId);
+  const isInCart = !!cartItem;
+
+  // Sync local quantity with cart quantity when variant changes or cart updates
+  useEffect(() => {
+    if (cartItem) {
+      setQuantity(cartItem.quantity);
+    } else {
+      setQuantity(1); // Default for new items
+    }
+  }, [cartItem, selectedVariantId]);
+
+  const handleIncrease = async () => {
+    const newQty = quantity + 1;
+    if (newQty > maxQuantity) return;
+
+    setQuantity(newQty); // Optimistic update
+    if (isInCart && cartItem) {
+      try {
+        await updateItem(cartItem.id, newQty);
+      } catch (err) {
+        setQuantity(quantity); // Revert on error
+        console.error('Update item error', err);
+      }
+    }
   };
 
-  const handleAddToCart = async () => {
+  const handleDecrease = async () => {
+    const newQty = quantity - 1;
+    
+    // If item is in cart and quantity becomes 0 -> remove interaction
+    if (isInCart && cartItem && newQty < 1) {
+       try {
+         await removeItem(cartItem.id);
+         setQuantity(1); 
+       } catch(err) {
+         console.error('Remove item error', err);
+       }
+       return;
+    }
+
+    if (newQty < 1) return; // For local state, don't go below 1
+
+    setQuantity(newQty); // Optimistic update
+    if (isInCart && cartItem) {
+      try {
+        await updateItem(cartItem.id, newQty);
+      } catch (err) {
+        setQuantity(quantity); // Revert on error
+        console.error('Update item error', err);
+      }
+    }
+  };
+
+  const handleMainAction = async () => {
+    // 1. Validation
     if (!selectedVariantId) {
         Alert.alert("Внимание", "Пожалуйста, выберите вариант товара");
         return;
     }
     
-    if (isAdding || isOutOfStock) return;
+    // 2. If already in cart -> Navigate
+    if (isInCart) {
+        router.push('/(tabs)/cart');
+        return;
+    }
 
+    // 3. If adding...
+    if (isAdding || isOutOfStock) return;
     if (status !== 'authorized') {
       setIsAuthVisible(true);
       return;
@@ -165,7 +369,7 @@ export default function ProductScreen() {
     setIsAdding(true);
     try {
       await addItem(selectedVariantId, quantity);
-      Alert.alert("Успешно", "Товар добавлен в корзину");
+      // Success! Button will automatically switch to "Go to Cart" via isInCart
     } catch (err) {
       console.error('[ProductScreen] Add to cart error:', err);
       Alert.alert("Ошибка", "Не удалось добавить товар в корзину");
@@ -174,6 +378,7 @@ export default function ProductScreen() {
     }
   };
 
+  /* --- RENDER --- */
   return (
     <View className="flex-1 bg-gray-50">
       <Stack.Screen 
@@ -183,8 +388,16 @@ export default function ProductScreen() {
           headerTransparent: true, 
           headerTintColor: '#111827',
           headerRight: () => (
-            <Pressable className="bg-white/90 p-2 rounded-full shadow-sm" accessibilityLabel="Поделиться">
-                <Ionicons name="share-outline" size={24} color="#111827" />
+            <Pressable 
+                onPress={handleToggleFavorite}
+                className="bg-white/90 p-2.5 rounded-full shadow-sm"
+                accessibilityLabel="В избранное"
+            >
+                <Ionicons 
+                    name={isFav ? "heart" : "heart-outline"} 
+                    size={26} 
+                    color={isFav ? "#DC2626" : "#111827"} 
+                />
             </Pressable>
           ),
           headerLeft: (props) => props.canGoBack ? (
@@ -231,24 +444,34 @@ export default function ProductScreen() {
         <>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 150 }}>
             {/* 1. GALLERY */}
-            <View className="bg-white relative mb-4">
+            <View className="bg-white relative mb-4" style={{ height: SCREEN_WIDTH }}>
               <FlatList
+                ref={(ref) => setFlatListRef(ref)}
                 data={images}
+                keyExtractor={(item, index) => `gallery-${index}`}
                 horizontal
-                pagingEnabled
+                pagingEnabled={false}
+                nestedScrollEnabled={true}
+                scrollEventThrottle={16}
+                decelerationRate={0.9}
+                snapToInterval={SCREEN_WIDTH}
+                snapToAlignment="start"
                 showsHorizontalScrollIndicator={false}
                 onMomentumScrollEnd={(ev) => {
                   const index = Math.round(ev.nativeEvent.contentOffset.x / SCREEN_WIDTH);
                   setActiveImage(index);
                 }}
                 renderItem={({ item }) => (
-                  <View style={{ width: SCREEN_WIDTH, height: SCREEN_WIDTH }}>
+                  <Pressable 
+                    onPress={() => setIsGalleryVisible(true)}
+                    style={{ width: SCREEN_WIDTH, height: SCREEN_WIDTH }}
+                  >
                     <Image
                       source={{ uri: item }}
                       style={{ width: '100%', height: '100%' }}
                       contentFit="contain"
                     />
-                  </View>
+                  </Pressable>
                 )}
               />
               <View className="flex-row justify-center absolute bottom-4 w-full">
@@ -387,117 +610,206 @@ export default function ProductScreen() {
                  </Accordion>
             </View>
 
-            {RELATED_PRODUCTS.length > 0 && (
-              <View className="bg-white pt-6 pb-2 mb-4">
-                  <Text className="text-dark text-lg font-black uppercase mb-4 px-4">
-                      Похожие товары
-                  </Text>
-                  <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false} 
-                      contentContainerStyle={{ paddingHorizontal: 16 }}
-                  >
-                      {RELATED_PRODUCTS.map((item) => (
-                          <View key={item.id} className="mr-3 w-[160px]">
-                              <ProductCard 
-                                  product={item} 
-                                  isFavorite={isFavorite(item.id)}
-                                  onToggleFavorite={() => toggleFavorite({
-                                      id: item.id,
-                                      title: item.title,
-                                      handle: item.id,
-                                      thumbnail: item.thumbnail,
-                                  } as any)}
-                              />
-                          </View>
-                      ))}
-                  </ScrollView>
+            {/* REVIEWS SECTION (P0) */}
+            <View className="px-5 py-6 bg-white mb-4 border-t border-b border-gray-100">
+              <Text className="text-dark font-black uppercase text-base tracking-wider border-l-4 border-primary pl-3 mb-4">
+                Отзывы
+              </Text>
+
+              {/* Summary */}
+              <View className="flex-row items-center mb-6">
+                <Text className="text-4xl font-bold text-dark mr-3">{avgRating.toFixed(1)}</Text>
+                <View>
+                  <View className="flex-row mb-1">
+                     {[1, 2, 3, 4, 5].map((star) => (
+                       <Ionicons 
+                         key={star}
+                         name={star <= Math.round(avgRating) ? "star" : "star-outline"} 
+                         size={16} 
+                         color="#F59E0B" 
+                       />
+                     ))}
+                  </View>
+                  <Text className="text-gray-500 text-xs font-bold uppercase">{reviewsCount} оценок</Text>
+                </View>
               </View>
-            )}
+
+              {/* Reviews List */}
+              {reviews.length === 0 ? (
+                <View className="py-6 items-center bg-gray-50 rounded-xl mb-4">
+                   <Ionicons name="chatbubble-outline" size={32} color="#9CA3AF" />
+                   <Text className="text-gray-500 mt-2 text-center text-sm">
+                     Отзывов пока нет. Будьте первым!
+                   </Text>
+                </View>
+              ) : (
+                <View className="mb-4">
+                  {reviews.slice(0, 3).map((review) => (
+                    <View key={review.id} className="mb-4 pb-4 border-b border-gray-100 last:border-0 last:mb-0">
+                      <View className="flex-row justify-between items-start mb-1.5">
+                        <View className="flex-row">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Ionicons key={s} name={s <= review.rating ? "star" : "star-outline"} size={12} color="#F59E0B" />
+                          ))}
+                        </View>
+                        <Text className="text-gray-400 text-[10px]">{new Date(review.created_at).toLocaleDateString()}</Text>
+                      </View>
+                      <Text className="text-sm text-gray-800 leading-5">{review.comment}</Text>
+                    </View>
+                  ))}
+                  {reviews.length > 3 && (
+                    <Pressable className="py-2 items-center">
+                      <Text className="text-primary font-bold text-xs uppercase">Читать все отзывы ({reviewsCount})</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+
+              {/* Add Review Button */}
+              <Pressable 
+                onPress={() => setIsReviewSheetVisible(true)}
+                className="w-full bg-gray-100 active:bg-gray-200 py-3.5 rounded-xl items-center flex-row justify-center"
+              >
+                 <Ionicons name="pencil" size={16} color="#4B5563" style={{ marginRight: 8 }} />
+                 <Text className="text-gray-800 font-bold uppercase text-xs tracking-wide">
+                   Написать отзыв
+                 </Text>
+              </Pressable>
+            </View>
+
+            {/* RECOMMENDATIONS (P0 Upgrade) */}
+            <RecommendationRail 
+              title="С этим часто покупают" 
+              products={boughtTogetherProducts} 
+              isLoading={isRecsLoading && boughtTogetherProducts.length === 0} 
+              renderItem={(p: Product) => <BoughtTogetherCard product={p} />}
+            />
+
+            <RecommendationRail 
+              title="Похожие товары" 
+              products={similarProducts} 
+              isLoading={isRecsLoading && similarProducts.length === 0} 
+            />
+            
+            <RecommendationRail 
+              title="Вы смотрели" 
+              products={recentlyViewedProducts} 
+              isLoading={isRecsLoading && recentlyViewedProducts.length === 0} 
+            />
+
           </ScrollView>
 
-          <View className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg">
-            <SafeAreaView edges={['bottom']} className="px-4 py-3">
-                <View className="flex-row items-center justify-between mb-3">
-                    <View>
-                        {oldPrice && (
-                            <Text className="text-gray-400 text-xs line-through font-medium">
-                                {formatMoney(oldPrice)}
-                            </Text>
-                        )}
-                        <Text className="text-dark text-xl font-black">
-                            {formatMoney(price * quantity)}
+          <View className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-xl">
+            <SafeAreaView edges={['bottom']} className="px-4 py-4">
+              <View className="flex-row items-center justify-between gap-4">
+                {/* Left Side: Price OR Counter (If in cart) */}
+                <View className="flex-1">
+                  {!isInCart ? (
+                    <View className="justify-center">
+                      {oldPrice && (
+                        <Text className="text-gray-400 text-xs line-through font-medium mb-0.5">
+                          {formatMoney(oldPrice)}
                         </Text>
+                      )}
+                      <Text className="text-dark text-xl font-black">
+                        {formatMoney(price)}
+                      </Text>
+                      <View className="flex-row items-center mt-1">
+                        <View className={`w-1.5 h-1.5 rounded-full mr-1.5 ${inStock ? 'bg-green-500' : 'bg-red-500'}`} />
+                        <Text className={`font-bold text-[10px] ${inStock ? 'text-green-600' : 'text-red-500'}`}>
+                          {inStock 
+                            ? (canBackorder ? 'Предзаказ' : 'В наличии')
+                            : 'Нет в наличии'}
+                        </Text>
+                      </View>
                     </View>
-                    <View className="items-end">
-                         <View className="flex-row items-center">
-                            <View className={`w-2 h-2 rounded-full mr-1 ${inStock ? 'bg-green-500' : 'bg-red-500'}`} />
-                            <Text className={`font-bold text-xs ${inStock ? 'text-green-600' : 'text-red-500'}`}>
-                               {inStock 
-                                  ? (canBackorder ? 'Предзаказ' : 'В наличии')
-                                  : 'Нет в наличии'}
-                            </Text>
-                         </View>
-                         {!isOutOfStock && manageInventory && !canBackorder && (
-                            <Text className="text-gray-500 text-[10px]">Осталось: {inventoryQuantity} шт.</Text>
+                  ) : (
+                    /* Cart Counter (When in cart) */
+                    <View className="flex-row items-center bg-gray-100 rounded-xl h-[52px] border border-gray-200">
+                      <Pressable 
+                        onPress={handleDecrease}
+                        disabled={isOutOfStock} 
+                        className="w-[44px] h-full items-center justify-center active:bg-gray-200 rounded-l-xl"
+                      >
+                        <Ionicons name="remove" size={20} color="#374151" />
+                      </Pressable>
+                      
+                      <View className="flex-1 items-center justify-center">
+                        <Text className="font-bold text-dark text-lg" style={{ lineHeight: 22 }}>{quantity}</Text>
+                        <Text className="text-[9px] text-gray-400 uppercase font-black" style={{ marginTop: -2 }}>шт</Text>
+                      </View>
+
+                      <Pressable 
+                        onPress={handleIncrease}
+                        disabled={quantity >= maxQuantity || isOutOfStock}
+                        className={`w-[44px] h-full items-center justify-center ${quantity >= maxQuantity ? 'opacity-30' : 'active:bg-gray-200'} rounded-r-xl`}
+                      >
+                        <Ionicons name="add" size={20} color="#374151" />
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+
+                {/* Right Side: Action Button (Add OR Go To Cart) */}
+                <View className="flex-[1.4]">
+                  <Pressable 
+                    onPress={handleMainAction}
+                    disabled={(!selectedVariantId || isOutOfStock || isAdding) && !isInCart}
+                    className={`flex-1 rounded-xl h-[52px] px-2 justify-center items-center shadow-sm ${
+                      isInCart 
+                        ? 'bg-primary/5 border-2 border-primary' 
+                        : (!selectedVariantId || isOutOfStock || isAdding) 
+                          ? 'bg-gray-300 shadow-none' 
+                          : 'bg-primary active:bg-primary/90'
+                    }`}
+                  >
+                    {isAdding ? (
+                      <ActivityIndicator color={isInCart ? "#DC2626" : "white"} size="small" />
+                    ) : (
+                      <View className="flex-row items-center justify-center">
+                         {isInCart && (
+                            <Ionicons name="cart-outline" size={18} color="#DC2626" style={{ marginRight: 6 }} />
                          )}
-                    </View>
-                </View>
-
-                <View className="flex-row gap-3">
-                    <View className="flex-row items-center bg-gray-100 rounded-sm">
-                       <Pressable 
-                          onPress={handleDecrease}
-                          disabled={quantity <= 1 || isOutOfStock}
-                          className={`px-4 py-3 ${quantity <= 1 ? 'opacity-30' : 'active:opacity-60'}`}
-                       >
-                         <Ionicons name="remove" size={20} color="#374151" />
-                       </Pressable>
-                       <Text className="font-bold text-dark text-base min-w-[20px] text-center">{quantity}</Text>
-                       <Pressable 
-                          onPress={handleIncrease}
-                          disabled={quantity >= maxQuantity || isOutOfStock}
-                          className={`px-4 py-3 ${quantity >= maxQuantity ? 'opacity-30' : 'active:opacity-60'}`}
-                       >
-                         <Ionicons name="add" size={20} color="#374151" />
-                       </Pressable>
-                    </View>
-
-                    <Pressable 
-                      onPress={handleAddToCart}
-                      disabled={!selectedVariantId || isOutOfStock || isAdding}
-                      className={`flex-1 rounded-sm py-3 justify-center items-center shadow-sm ${(!selectedVariantId || isOutOfStock || isAdding) ? 'bg-gray-300' : 'bg-primary active:bg-primary-dark'}`}
-                    >
-                        {isAdding ? (
-                          <ActivityIndicator color="white" size="small" />
-                        ) : (
-                          <Text className="text-white font-black uppercase tracking-wider text-sm">
-                              {!selectedVariantId 
-                                ? 'Выберите вариант' 
+                         <Text className={`font-black uppercase tracking-wider text-xs text-center ${isInCart ? 'text-primary' : 'text-white'}`}>
+                            {isInCart ? 'Перейти в корзину' : 
+                              (!selectedVariantId 
+                                ? 'Выбор...' 
                                 : isOutOfStock 
-                                    ? 'Нет в наличии' 
-                                    : 'В корзину'}
-                          </Text>
-                        )}
-                    </Pressable>
-                    
-                    <Pressable 
-                      onPress={handleToggleFavorite}
-                      className={`border rounded-sm py-3 px-4 justify-center items-center active:opacity-70 ${isFav ? 'bg-red-50 border-red-200' : 'bg-gray-100 border-gray-300'}`}
-                    >
-                      <Ionicons 
-                          name={isFav ? "heart" : "heart-outline"} 
-                          size={24} 
-                          color={isFav ? "#DC2626" : "#374151"} 
-                      />
-                    </Pressable>
+                                  ? 'Нет в наличии' 
+                                  : 'В корзину')
+                            }
+                         </Text>
+                         {!isInCart && !isOutOfStock && selectedVariantId && (
+                             <Ionicons name="chevron-forward" size={14} color="white" style={{ marginLeft: 4 }} />
+                         )}
+                      </View>
+                    )}
+                  </Pressable>
                 </View>
+              </View>
             </SafeAreaView>
           </View>
+
+          <ReviewSheet
+            isVisible={isReviewSheetVisible}
+            onClose={() => setIsReviewSheetVisible(false)}
+            productId={id || ''}
+          />
 
           <AuthSheet 
             isVisible={isAuthVisible} 
             onClose={() => setIsAuthVisible(false)} 
+          />
+
+          <ImageGalleryModal
+            isVisible={isGalleryVisible}
+            images={images}
+            initialIndex={activeImage}
+            onClose={(newIndex) => {
+              setIsGalleryVisible(false);
+              setActiveImage(newIndex);
+              flatListRef?.scrollToIndex({ index: newIndex, animated: false });
+            }}
           />
         </>
       )}

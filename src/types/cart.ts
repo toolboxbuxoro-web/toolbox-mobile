@@ -9,10 +9,12 @@ export interface LineItem {
   variant: {
     id: string;
     title: string;
+    weight?: number;
     product: {
       id: string;
       title: string;
       thumbnail: string;
+      weight?: number;
     };
   };
   total: number;

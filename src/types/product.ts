@@ -45,6 +45,11 @@ export interface Product {
   options: ProductOption[];
   variants: ProductVariant[];
   collection_id?: string;
+  categories?: {
+    id: string;
+    name: string;
+    handle: string;
+  }[];
   // Custom fields often added in Medusa or metadata
   metadata?: Record<string, any>;
 }

@@ -29,7 +29,7 @@ class ProductService {
     const REGION_ID = 'reg_01KAY0QXWMQSDRYZRGRCKE0GAN';
     
     // Storefront pattern for Medusa 2.0 pricing and inventory
-    const fields = '*variants.calculated_price,+variants.inventory_quantity,+metadata,+images';
+    const fields = '*variants.calculated_price,+variants.inventory_quantity,+metadata,+images,+categories,+collection';
     
     const params = new URLSearchParams(queryParams || '');
     params.set('fields', fields);
@@ -54,7 +54,7 @@ class ProductService {
 
   async getProduct(id: string): Promise<Product> {
     const REGION_ID = 'reg_01KAY0QXWMQSDRYZRGRCKE0GAN';
-    const fields = '*variants.calculated_price,+variants.inventory_quantity,+metadata,+images';
+    const fields = '*variants.calculated_price,+variants.inventory_quantity,+metadata,+images,+categories,+collection';
     const endpoint = `/store/products/${id}?region_id=${REGION_ID}&fields=${fields}`;
     const data = await this.request<StoreProductRes>(endpoint);
     return data.product;

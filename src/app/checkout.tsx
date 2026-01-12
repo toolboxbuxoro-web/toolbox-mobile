@@ -13,11 +13,15 @@ import { AuthSheet } from '../components/auth/AuthSheet';
 import { useEffect } from 'react';
 import { PaymentMethodSelector, PaymentProviderId } from '../components/checkout/PaymentMethodSelector';
 
+import { DeliveryMethodCard } from '../components/checkout/DeliveryMethodCard';
+import { useBtsLocationStore } from '../store/bts-location-store';
+
 export default function CheckoutScreen() {
   const router = useRouter();
   const { cart } = useCartStore();
   const { submitOrder, loading, error, validatePhone } = useCheckout();
   const { customer, status: authStatus } = useAuthStore();
+  const { hasLocation } = useBtsLocationStore();
   const isAuthenticated = authStatus === 'authorized';
   
   const [isAuthVisible, setIsAuthVisible] = useState(false);
@@ -54,6 +58,10 @@ export default function CheckoutScreen() {
     if (!validatePhone(formData.phone)) {
       errors.phone = 'Неверный формат телефона (+998 XX XXX XX XX)';
     }
+
+    if (!hasLocation()) {
+      errors.delivery = 'Выберите пункт выдачи';
+    }
     
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -86,7 +94,7 @@ export default function CheckoutScreen() {
             Alert.alert('Ошибка', 'Не удалось получить ссылку на оплату. Проверьте настройки бэкенда.');
             return;
           }
-          router.push({
+          router.replace({
             pathname: '/payment-webview',
             params: { 
               url: result.paymentUrl, 
@@ -105,7 +113,7 @@ export default function CheckoutScreen() {
     }
   };
 
-  const isButtonDisabled = formData.name.length < 2 || formData.phone.length < 10;
+  const isButtonDisabled = formData.name.length < 2 || formData.phone.length < 10 || !hasLocation();
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
@@ -124,6 +132,11 @@ export default function CheckoutScreen() {
 
         <CheckoutSummary cart={cart} />
         
+        <DeliveryMethodCard 
+          cart={cart}
+          error={formErrors.delivery}
+        />
+
         <CheckoutContactForm 
           data={formData} 
           onChange={setFormData} 

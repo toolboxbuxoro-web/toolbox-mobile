@@ -2,15 +2,88 @@ import { View, Text, FlatList, Pressable, ActivityIndicator } from 'react-native
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useCollections } from '@/hooks/useCollections';
+import { useCategories } from '@/hooks/useCategories';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ProductCategory } from '@/services/category.service';
+import { Image } from 'expo-image';
+import { useState } from 'react';
+
+interface CategoryItemProps {
+  category: ProductCategory;
+  level?: number;
+  onPress: (handle: string) => void;
+}
+
+function CategoryItem({ category, level = 0, onPress }: CategoryItemProps) {
+  const [expanded, setExpanded] = useState(false);
+  const hasChildren = category.category_children && category.category_children.length > 0;
+  const iconUrl = category.metadata?.icon_url;
+
+  return (
+    <View>
+      <Pressable
+        onPress={() => {
+          if (hasChildren) {
+            setExpanded(!expanded);
+          } else {
+            onPress(category.handle);
+          }
+        }}
+        className="flex-row items-center justify-between px-4 py-4 border-b border-gray-100 active:bg-gray-50"
+        style={{ paddingLeft: 16 + level * 20 }}
+        accessibilityRole="button"
+        accessibilityLabel={`Открыть категорию ${category.name}`}
+      >
+        <View className="flex-row items-center flex-1">
+          <View className="w-10 h-10 bg-gray-50 rounded-full items-center justify-center mr-4 overflow-hidden">
+            {iconUrl ? (
+              <Image
+                source={{ uri: iconUrl }}
+                style={{ width: 28, height: 28 }}
+                contentFit="contain"
+              />
+            ) : (
+              <Ionicons name="grid-outline" size={22} color="#DC2626" />
+            )}
+          </View>
+          <View className="flex-1">
+            <Text className="text-gray-900 text-base font-bold">{category.name}</Text>
+            {hasChildren && (
+              <Text className="text-gray-400 text-xs mt-0.5">
+                {category.category_children!.length} подкатегори{category.category_children!.length === 1 ? 'я' : category.category_children!.length < 5 ? 'и' : 'й'}
+              </Text>
+            )}
+          </View>
+        </View>
+        {hasChildren ? (
+          <Ionicons name={expanded ? "chevron-down" : "chevron-forward"} size={20} color="#9CA3AF" />
+        ) : (
+          <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+        )}
+      </Pressable>
+
+      {expanded && hasChildren && (
+        <View className="bg-gray-50">
+          {category.category_children!.map((child) => (
+            <CategoryItem 
+              key={child.id} 
+              category={child} 
+              level={level + 1} 
+              onPress={onPress} 
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
 
 export default function CatalogScreen() {
   const router = useRouter();
-  const { data: collections, isLoading, error, refetch } = useCollections();
+  const { data: categories, isLoading, error, refetch } = useCategories();
 
-  const handleCategoryPress = (collectionId: string) => {
-    router.push(`/catalog/${collectionId}`);
+  const handleCategoryPress = (categoryHandle: string) => {
+    router.push(`/catalog/${categoryHandle}`);
   };
 
   if (isLoading) {
@@ -58,30 +131,20 @@ export default function CatalogScreen() {
       </View>
 
       <FlatList
-        data={collections}
+        data={categories}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 100 }}
         ListEmptyComponent={() => (
            <View className="flex-1 items-center justify-center pt-20">
-              <Text className="text-gray-500">Коллекции не найдены</Text>
+              <Text className="text-gray-500">Категории не найдены</Text>
            </View>
         )}
         renderItem={({ item }) => (
-          <Pressable
-            onPress={() => handleCategoryPress(item.id)}
-            className="flex-row items-center justify-between px-4 py-4 border-b border-gray-100 active:bg-gray-50"
-            accessibilityRole="button"
-            accessibilityLabel={`Открыть категорию ${item.title}`}
-          >
-            <View className="flex-row items-center">
-              <View className="w-10 h-10 bg-gray-50 rounded-full items-center justify-center mr-4">
-                 <Ionicons name="flash-outline" size={22} color="#DC2626" />
-              </View>
-              <Text className="text-gray-900 text-base font-bold">{item.title}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-          </Pressable>
+          <CategoryItem 
+            category={item} 
+            onPress={handleCategoryPress} 
+          />
         )}
       />
     </SafeAreaView>

@@ -1,8 +1,8 @@
-import { View, Text, Pressable, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, Alert, ScrollView, LayoutChangeEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useCart } from '../hooks/useCart';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Product } from '../types/product';
 import { useFavoritesStore } from '@/store/favorites-store';
 import { HighlightedText } from './ui/highlighted-text';
@@ -11,6 +11,7 @@ import { InstallmentPrice } from './ui/installment-price';
 import { formatMoney } from '../lib/formatters/money';
 import { useAuthStore } from '@/store/auth-store';
 import { AuthSheet } from './auth/AuthSheet';
+import { useRouter } from 'expo-router';
 
 interface ProductCardProps {
   product: Product;
@@ -19,27 +20,71 @@ interface ProductCardProps {
   onToggleFavorite?: () => void;
   onAddToCart?: () => void;
   searchQuery?: string;
+  avgRating?: number | null;
+  reviewCount?: number;
 }
 
-export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, onAddToCart, searchQuery }: ProductCardProps) {
+export function ProductCard({ 
+  product, 
+  onPress, 
+  isFavorite, 
+  onToggleFavorite, 
+  onAddToCart, 
+  searchQuery,
+  avgRating,
+  reviewCount 
+}: ProductCardProps) {
   const { addItem } = useCart();
   const [adding, setAdding] = useState(false);
   const [isAuthVisible, setIsAuthVisible] = useState(false);
   const { status } = useAuthStore();
   const { isFavorite: isFavStore, toggleFavorite } = useFavoritesStore();
+  const router = useRouter();
+  
+  // Carousel State
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [cardWidth, setCardWidth] = useState(0);
 
   const isFav = isFavorite !== undefined ? isFavorite : (product ? isFavStore(product.id) : false);
 
+  const handleBasePress = useCallback(() => {
+    console.log('[ProductCard] Press detected', { productId: product?.id, hasOnPress: !!onPress });
+    if (onPress) {
+      onPress();
+    } else if (product?.id) {
+      router.push(`/product/${product.id}`);
+    }
+  }, [onPress, product?.id, router]);
 
   // Determine display data
   const title = product.title;
-  const image = resultUrl(product.thumbnail) || resultUrl(product.images?.[0]?.url);
   
+  // Use passed rating or metadata fallback (legacy)
+  const displayRating = avgRating ?? (product.metadata?.rating as number) ?? 0;
+  const displayCount = reviewCount ?? (product.metadata?.reviews_count as number) ?? 0;
+  
+  // Helper for image URLs
   function resultUrl(url?: string) {
       if (!url) return null;
       if (url.startsWith('http')) return url;
       return url; 
   }
+
+  // Get all valid images (Thumbnail + Images), deduplicated, max 5
+  const images = useMemo(() => {
+    const urls = new Set<string>();
+    if (product.thumbnail) {
+      const url = resultUrl(product.thumbnail);
+      if (url) urls.add(url);
+    }
+    if (product.images && product.images.length > 0) {
+      product.images.forEach(img => {
+        const url = resultUrl(img.url);
+        if (url) urls.add(url);
+      });
+    }
+    return Array.from(urls).slice(0, 5);
+  }, [product.thumbnail, product.images]);
 
   // Get price from first variant using Medusa 2.0 calculated_price
   const priceAmount = useMemo(() => {
@@ -78,8 +123,8 @@ export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, on
   }, [product.variants]);
 
   // Get metadata for rating and installment
-  const rating = (product.metadata?.rating as number) || 0;
-  const reviewCount = (product.metadata?.reviews_count as number) || 0;
+  // const rating = (product.metadata?.rating as number) || 0; // REPLACED by displayRating
+  // const reviewCount = (product.metadata?.reviews_count as number) || 0; // REPLACED by displayCount
   const hasInstallment = (product.metadata?.has_installment as boolean) || false;
   
   const handleAddToCart = async () => {
@@ -106,7 +151,7 @@ export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, on
     setAdding(true);
     try {
       await addItem(variantId, 1);
-      Alert.alert("Успешно", "Товар добавлен в корзину");
+      // Success - no alert needed, user can see cart badge update
     } catch (err) {
       console.error('[ProductCard] Add to cart error:', err);
       Alert.alert("Ошибка", "Не удалось добавить товар");
@@ -123,33 +168,86 @@ export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, on
     }
   };
 
+  const onLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width } = event.nativeEvent.layout;
+    setCardWidth(width);
+  }, []);
+
   return (
     <>
-      <Pressable 
-        onPress={onPress}
-        className={`bg-white rounded-xl overflow-hidden mb-3 shadow-sm border border-gray-100 flex-1 mx-1 ${!isInStock ? 'opacity-80' : ''}`}
+      <View 
+        className={`bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 flex-1 ${!isInStock ? 'opacity-80' : ''}`}
       >
-        {/* Image Container */}
-        <View className={`relative ${!isInStock ? 'opacity-70' : ''}`}>
-          <Image
-            source={image ? { uri: image } : require('../../assets/images/placeholder.png')} 
-            style={{ width: '100%', aspectRatio: 3/4 }}
-            contentFit="contain"
-            cachePolicy="memory-disk"
-            transition={200}
-            className="bg-white"
-          />
+        {/* Image Container with Carousel */}
+        <View 
+          className={`relative ${!isInStock ? 'opacity-70' : ''}`}
+          onLayout={onLayout}
+        >
+          {images.length > 1 && cardWidth > 0 ? (
+            <View style={{ height: cardWidth * 1.33 }}>
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                scrollEventThrottle={16}
+                onMomentumScrollEnd={(e) => {
+                  const x = e.nativeEvent.contentOffset.x;
+                  setActiveIndex(Math.round(x / cardWidth));
+                }}
+              >
+                {images.map((img, index) => (
+                  <Pressable 
+                    key={`${img}-${index}`}
+                    onPress={handleBasePress}
+                    style={{ width: cardWidth, height: '100%' }}
+                  >
+                    <Image
+                      source={{ uri: img }}
+                      style={{ width: '100%', height: '100%' }}
+                      contentFit="contain"
+                      cachePolicy="memory-disk"
+                      transition={200}
+                      className="bg-white"
+                    />
+                  </Pressable>
+                ))}
+              </ScrollView>
+              
+              {/* Pagination Dots */}
+              <View className="absolute bottom-2 left-0 right-0 flex-row justify-center gap-1.5">
+                {images.map((_, i) => (
+                  <View 
+                    key={i} 
+                    className={`h-1.5 rounded-full shadow-sm transition-all ${
+                      i === activeIndex ? 'w-4 bg-primary' : 'w-1.5 bg-gray-300'
+                    }`} 
+                  />
+                ))}
+              </View>
+            </View>
+          ) : (
+            <Pressable onPress={handleBasePress}>
+              <Image
+                source={images[0] ? { uri: images[0] } : require('../../assets/images/placeholder.png')} 
+                style={{ width: '100%', aspectRatio: 3/4 }}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                transition={200}
+                className="bg-white"
+              />
+            </Pressable>
+          )}
           
           {/* Favorite Button */}
           <Pressable 
             onPress={handleToggleFavorite}
-            className={`absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full shadow-md ${
+            className={`absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full shadow-md ${
               isFav ? 'bg-red-50' : 'bg-white/80'
             }`}
           >
             <Ionicons 
               name={isFav ? "heart" : "heart-outline"} 
-              size={20} 
+              size={18} 
               color={isFav ? "#DC2626" : "#6B7280"} 
             />
           </Pressable>
@@ -163,7 +261,7 @@ export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, on
         </View>
 
         {/* Product Info */}
-        <View className="p-3 flex-1">
+        <Pressable onPress={handleBasePress} className="p-3 flex-1">
           {/* Price */}
           <View className="mb-2 h-7 flex-row items-center">
             <Text className="text-red-600 font-black text-base">
@@ -182,7 +280,7 @@ export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, on
 
           {/* Rating */}
           <View className="h-5 mb-1">
-            <ProductRating rating={rating} reviewCount={reviewCount} size="small" />
+            <ProductRating rating={displayRating} reviewCount={displayCount} size="small" />
           </View>
 
           {/* Stock Quantity - Only show if inventory is managed and in stock */}
@@ -222,8 +320,8 @@ export function ProductCard({ product, onPress, isFavorite, onToggleFavorite, on
                </>
             )}
           </Pressable>
-        </View>
-      </Pressable>
+        </Pressable>
+      </View>
 
       <AuthSheet 
         isVisible={isAuthVisible} 

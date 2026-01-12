@@ -16,13 +16,15 @@ interface ProductRailProps {
   experiment?: { name: string; variant: string } | null;
 }
 
+import { SectionError } from './SectionError';
+
 /**
  * Main content component that performs data fetching.
  * This is only rendered once the LazySection enters the viewport.
  */
 function ProductRailContent({ collectionId, title, id, position, experiment }: ProductRailProps) {
   const router = useRouter();
-  const { data: products, isLoading, error } = useProducts(`collection_id[]=${collectionId}&limit=8`);
+  const { data: products, isLoading, isError, refetch } = useProducts(`collection_id[]=${collectionId}&limit=8`);
 
   const handleProductPress = (productId: string, productIndex: number) => {
     track('product_click', {
@@ -44,8 +46,21 @@ function ProductRailContent({ collectionId, title, id, position, experiment }: P
     router.push(`/catalog/${collectionId}`);
   };
 
-  if (isLoading || error || !products?.length) {
+  if (isLoading) {
     return <ProductRailSkeleton />;
+  }
+
+  if (isError) {
+    return (
+      <SectionError 
+        title={`"${title}" временно недоступно`} 
+        onRetry={refetch} 
+      />
+    );
+  }
+
+  if (!products?.length) {
+    return null;
   }
 
   return (
