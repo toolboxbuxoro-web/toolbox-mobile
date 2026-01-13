@@ -59,6 +59,13 @@ export default function RootLayout() {
               title: 'Мои заказы',
             }} 
           />
+          <Stack.Screen 
+            name="reviews/[id]" 
+            options={{ 
+              headerShown: true,
+              title: 'Отзывы',
+            }} 
+          />
         </Stack>
       </QueryClientProvider>
     </GestureHandlerRootView>

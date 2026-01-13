@@ -1,6 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '@/store/auth-store';
-import { authService } from '@/services/auth.service';
+import { reviewService } from '@/services/review.service';
 
 interface SubmitReviewData {
   productId: string;
@@ -13,29 +12,12 @@ export function useSubmitReview() {
   
   return useMutation({
     mutationFn: async ({ productId, rating, comment }: SubmitReviewData) => {
-      const baseUrl = process.env.EXPO_PUBLIC_MEDUSA_API_URL || 'http://localhost:9000';
-      
-      const token = await authService.getToken();
-      
-      const response = await fetch(`${baseUrl}/store/products/${productId}/reviews`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ rating, comment }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to submit review');
-      }
-
-      return response.json();
+      return reviewService.createReview(productId, rating, comment);
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['reviews', variables.productId] });
-      // Also potentially invalidate product details if we added rating stats to it.
+      // Clear can-review cache as user just reviewed
+      queryClient.invalidateQueries({ queryKey: ['can-review', variables.productId] });
     },
   });
 }

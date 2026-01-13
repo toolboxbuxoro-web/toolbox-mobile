@@ -214,8 +214,8 @@ export default function ProductScreen() {
   // Reviews (P0)
   const { data: reviewsData } = useProductReviews(id);
   const reviews = reviewsData?.reviews || [];
-  const reviewsCount = reviewsData?.count || 0;
-  const avgRating = reviewsData?.avg_rating || 0;
+  const reviewsCount = reviewsData?.total || 0;
+  const avgRating = reviewsData?.average_rating || 0;
   const [isReviewSheetVisible, setIsReviewSheetVisible] = useState(false);
 
   // Track Recent View
@@ -503,15 +503,18 @@ export default function ProductScreen() {
                 {product.title}
               </Text>
 
-              <View className="flex-row items-center mb-6">
+              <Pressable 
+                onPress={() => router.push(`/reviews/${id}`)}
+                className="flex-row items-center mb-6 active:opacity-60"
+              >
                 <View className="flex-row items-center bg-yellow-100 px-2 py-1 rounded-sm mr-3">
                     <Ionicons name="star" size={14} color="#D97706" />
-                    <Text className="text-yellow-800 font-bold ml-1 text-xs">{(product.metadata?.rating as string) || '5.0'}</Text>
+                    <Text className="text-yellow-800 font-bold ml-1 text-xs">{avgRating > 0 ? avgRating.toFixed(1) : '0.0'}</Text>
                 </View>
                 <Text className="text-gray-500 text-sm font-medium underline">
-                  {(product.metadata?.reviewsCount as string) || '0'} отзывов
+                  {reviewsCount} отзывов
                 </Text>
-              </View>
+              </Pressable>
 
               {showVariants && (
                 <View className="mb-6">
@@ -617,7 +620,10 @@ export default function ProductScreen() {
               </Text>
 
               {/* Summary */}
-              <View className="flex-row items-center mb-6">
+              <Pressable 
+                onPress={() => router.push(`/reviews/${id}`)}
+                className="flex-row items-center mb-6 active:opacity-70"
+              >
                 <Text className="text-4xl font-bold text-dark mr-3">{avgRating.toFixed(1)}</Text>
                 <View>
                   <View className="flex-row mb-1">
@@ -632,7 +638,10 @@ export default function ProductScreen() {
                   </View>
                   <Text className="text-gray-500 text-xs font-bold uppercase">{reviewsCount} оценок</Text>
                 </View>
-              </View>
+                <View className="flex-1 items-end">
+                   <Ionicons name="chevron-forward" size={20} color="#D1D5DB" />
+                </View>
+              </Pressable>
 
               {/* Reviews List */}
               {reviews.length === 0 ? (
@@ -658,7 +667,10 @@ export default function ProductScreen() {
                     </View>
                   ))}
                   {reviews.length > 3 && (
-                    <Pressable className="py-2 items-center">
+                    <Pressable 
+                      onPress={() => router.push(`/reviews/${id}`)}
+                      className="py-2 items-center active:opacity-60"
+                    >
                       <Text className="text-primary font-bold text-xs uppercase">Читать все отзывы ({reviewsCount})</Text>
                     </Pressable>
                   )}

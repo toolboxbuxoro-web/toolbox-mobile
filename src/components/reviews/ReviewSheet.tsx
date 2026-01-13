@@ -1,8 +1,9 @@
 import { View, Text, Pressable, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { BottomSheetModal, BottomSheetView, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
-import { useCallback, useRef, useMemo, useEffect } from 'react';
+import { useCallback, useRef, useMemo, useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useSubmitReview } from '@/hooks/useSubmitReview';
+import { useCanReview } from '@/hooks/useCanReview';
 import { useAuthStore } from '@/store/auth-store';
 
 interface ReviewSheetProps {
@@ -13,12 +14,15 @@ interface ReviewSheetProps {
 
 export function ReviewSheet({ productId, isVisible, onClose }: ReviewSheetProps) {
   const bottomSheetRef = useRef<BottomSheetModal>(null);
-  const snapPoints = useMemo(() => ['60%'], []);
+  const snapPoints = useMemo(() => ['65%'], []);
   const { status } = useAuthStore();
   const { mutate: submitReview, isPending } = useSubmitReview();
+  const { data: eligibility, isLoading: isCheckingEligibility } = useCanReview(productId);
   
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
+
+  const canReview = eligibility?.can_review ?? false;
 
   // Handle visibility via ref
   useEffect(() => {
@@ -57,7 +61,10 @@ export function ReviewSheet({ productId, isVisible, onClose }: ReviewSheetProps)
         setComment('');
         setRating(5);
         bottomSheetRef.current?.dismiss();
-        Alert.alert("Успешно", "Спасибо за ваш отзыв! Он появится на странице товара после обработки.");
+        Alert.alert(
+          "Отзыв отправлен", 
+          "Спасибо за ваше мнение! Ваш отзыв отправлен на модерацию и появится после проверки."
+        );
         onClose();
       },
       onError: (err: any) => {
@@ -77,51 +84,76 @@ export function ReviewSheet({ productId, isVisible, onClose }: ReviewSheetProps)
       backdropComponent={renderBackdrop}
       enablePanDownToClose
     >
-      <BottomSheetView className="flex-1 px-4 pt-2">
+      <BottomSheetView className="flex-1 px-5 pt-2">
         <Text className="text-xl font-bold text-center mb-6">Оставить отзыв</Text>
         
-        {/* Rating Selector */}
-        <View className="flex-row justify-center mb-6 space-x-2">
-           {[1, 2, 3, 4, 5].map((star) => (
-             <Pressable key={star} onPress={() => setRating(star)}>
-               <Ionicons 
-                 name={star <= rating ? "star" : "star-outline"} 
-                 size={40} 
-                 color="#FFC107" // Amber
-               />
-             </Pressable>
-           ))}
-        </View>
+        {isCheckingEligibility ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator color="#DC2626" />
+            <Text className="text-gray-400 mt-2">Проверка возможности...</Text>
+          </View>
+        ) : !canReview ? (
+          <View className="flex-1 items-center justify-center px-10">
+            <View className="w-16 h-16 bg-red-50 rounded-full items-center justify-center mb-4">
+              <Ionicons name="alert-circle-outline" size={32} color="#EF4444" />
+            </View>
+            <Text className="text-dark font-bold text-lg text-center mb-2">
+              Недостаточно прав
+            </Text>
+            <Text className="text-gray-500 text-center leading-5">
+              {eligibility?.reason === 'already_reviewed' 
+                ? 'Вы уже оставляли отзыв на этот товар.' 
+                : 'Отзыв можно оставить только после покупки этого товара.'}
+            </Text>
+          </View>
+        ) : (
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+            className="flex-1"
+          >
+            {/* Rating Selector */}
+            <View className="flex-row justify-center mb-8 gap-x-3">
+               {[1, 2, 3, 4, 5].map((star) => (
+                 <Pressable key={star} onPress={() => setRating(star)}>
+                   <Ionicons 
+                     name={star <= rating ? "star" : "star-outline"} 
+                     size={44} 
+                     color="#FFC107"
+                   />
+                 </Pressable>
+               ))}
+            </View>
 
-        {/* Comment Input */}
-        <Text className="font-medium mb-2 text-gray-700">Комментарий</Text>
-        <TextInput
-          className="w-full h-32 bg-gray-50 border border-gray-200 rounded-xl p-3 text-base mb-6"
-          multiline
-          textAlignVertical="top"
-          placeholder="Расскажите о товаре: плюсы, минусы..."
-          value={comment}
-          onChangeText={setComment}
-          autoCorrect={false} 
-        />
+            {/* Comment Input */}
+            <Text className="font-bold mb-2 text-dark text-sm uppercase tracking-wide">Ваш комментарий</Text>
+            <TextInput
+              className="w-full h-36 bg-gray-50 border border-gray-100 rounded-2xl p-4 text-dark text-base mb-8 shadow-inner"
+              multiline
+              textAlignVertical="top"
+              placeholder="Расскажите о товаре: что понравилось, а что нет?"
+              placeholderTextColor="#9CA3AF"
+              value={comment}
+              onChangeText={setComment}
+              autoCorrect={true} 
+            />
 
-        {/* Submit Button */}
-        <Pressable 
-          onPress={handleSubmit}
-          disabled={isPending}
-          className={`w-full py-4 rounded-xl items-center justify-center ${isPending ? 'bg-gray-200' : 'bg-red-600'}`}
-        >
-          {isPending ? (
-            <ActivityIndicator color="#000" />
-          ) : (
-             <Text className="text-white font-bold text-lg">Отправить отзыв</Text>
-          )}
-        </Pressable>
-
+            {/* Submit Button */}
+            <Pressable 
+              onPress={handleSubmit}
+              disabled={isPending}
+              className={`w-full py-4.5 rounded-2xl items-center justify-center shadow-lg ${isPending ? 'bg-gray-200 shadow-none' : 'bg-red-600 shadow-red-200'}`}
+            >
+              {isPending ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                 <Text className="text-white font-black uppercase text-base tracking-widest">
+                   Отправить отзыв
+                 </Text>
+              )}
+            </Pressable>
+          </KeyboardAvoidingView>
+        )}
       </BottomSheetView>
     </BottomSheetModal>
   );
 }
-
-// Helper to make useState visible
-import { useState } from 'react';
